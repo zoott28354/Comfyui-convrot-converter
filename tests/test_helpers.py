@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from convrot_gui import build_command, output_name, output_path
+from convrot_gui import TRANSLATIONS, build_command, output_name, output_path
 from quant_int8_convrot import (
     classify_decoder_text,
     classify_umt5_text,
@@ -13,6 +13,10 @@ from quant_int8_convrot import (
 
 
 class HelperTests(unittest.TestCase):
+    def test_translations_have_identical_keys(self):
+        self.assertEqual(set(TRANSLATIONS["it"]), set(TRANSLATIONS["en"]))
+        self.assertEqual(TRANSLATIONS["en"]["start"], "Start conversion")
+
     def test_output_name_replaces_precision(self):
         self.assertEqual(output_name(Path("wan_FP16_v2.safetensors")), "wan_int8_convrot_v2.safetensors")
 

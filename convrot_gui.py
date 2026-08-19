@@ -23,6 +23,121 @@ APP_DIR = Path(__file__).resolve().parent
 QUANTIZER = APP_DIR / "quant_int8_convrot.py"
 SUPPORTED_EXTENSIONS = {".safetensors", ".pth", ".pt", ".ckpt", ".bin"}
 
+TRANSLATIONS = {
+    "it": {
+        "language": "Lingua:",
+        "subtitle": "Quantizzazione INT8 + ConvRot per modelli ComfyUI, basata sullo script ufficiale Comfy-Org.",
+        "drop_default": "↓  TRASCINA QUI I MODELLI  ↓\n\n.safetensors  .pth  .pt  .ckpt  .bin",
+        "drop_release": "RILASCIA PER AGGIUNGERE I MODELLI",
+        "add_files": "Aggiungi file",
+        "remove_selected": "Rimuovi selezionati",
+        "clear": "Svuota",
+        "model": "Modello",
+        "size": "Dimensione",
+        "state": "Stato",
+        "output_folder": "Cartella output (vuota = accanto all'originale):",
+        "browse": "Sfoglia",
+        "dry_run": "Solo analisi (non scrive file)",
+        "mse_clip": "MSE clip (sperimentale)",
+        "downcast": "Riduci FP32 residui",
+        "quality_report": "Salva report qualità .tsv",
+        "min_gemm": "Min GEMM:",
+        "cancel": "Annulla",
+        "start": "Avvia conversione",
+        "status_drop": "Trascina qui uno o più modelli",
+        "status_release": "Rilascia i file nella finestra",
+        "status_wait": "Attendi la fine della conversione prima di aggiungere altri file",
+        "status_drop_error": "Impossibile leggere i file trascinati: {error}",
+        "status_queue": "{count} modello/i in coda",
+        "status_queue_rejected": "{count} modello/i in coda — {rejected} ignorati",
+        "status_cancelling": "Annullamento in corso…",
+        "status_cancelled": "Coda annullata",
+        "status_done": "Operazione conclusa: {successes}/{total}",
+        "state_waiting": "In attesa",
+        "state_running": "In corso",
+        "state_cancelled": "Annullato",
+        "state_completed": "Completato",
+        "state_analyzed": "Analizzato",
+        "state_error": "Errore",
+        "select_models": "Seleziona modelli ComfyUI",
+        "models_filter": "Modelli",
+        "all_files": "Tutti i file",
+        "destination_folder": "Cartella di destinazione",
+        "no_model_title": "Nessun modello",
+        "no_model_message": "Aggiungi almeno un modello da convertire.",
+        "invalid_value_title": "Valore non valido",
+        "invalid_value_message": "Min GEMM deve essere un numero intero maggiore o uguale a zero.",
+        "invalid_folder_title": "Cartella non valida",
+        "invalid_folder_message": "La cartella di destinazione non esiste.",
+        "existing_files_title": "File già esistenti",
+        "existing_files_message": "{count} file di destinazione esistono già e saranno sovrascritti. Continuare?",
+        "active_conversion_title": "Conversione attiva",
+        "active_conversion_message": "Interrompere la conversione e chiudere?",
+        "missing_script_title": "Script mancante",
+        "missing_script_message": "File non trovato:\n{path}",
+        "log_queue_start": "Avvio coda ConvRot",
+        "log_launch_error": "ERRORE avvio: {error}\n",
+        "log_cancelled": "\nCoda annullata.\n",
+        "log_done": "\nOperazione conclusa: {successes}/{total}.\n",
+    },
+    "en": {
+        "language": "Language:",
+        "subtitle": "INT8 + ConvRot quantization for ComfyUI models, based on the official Comfy-Org script.",
+        "drop_default": "↓  DROP MODELS HERE  ↓\n\n.safetensors  .pth  .pt  .ckpt  .bin",
+        "drop_release": "RELEASE TO ADD MODELS",
+        "add_files": "Add files",
+        "remove_selected": "Remove selected",
+        "clear": "Clear",
+        "model": "Model",
+        "size": "Size",
+        "state": "Status",
+        "output_folder": "Output folder (blank = next to the original):",
+        "browse": "Browse",
+        "dry_run": "Analysis only (does not write files)",
+        "mse_clip": "MSE clip (experimental)",
+        "downcast": "Downcast remaining FP32",
+        "quality_report": "Save .tsv quality report",
+        "min_gemm": "Min GEMM:",
+        "cancel": "Cancel",
+        "start": "Start conversion",
+        "status_drop": "Drop one or more models here",
+        "status_release": "Release the files in the window",
+        "status_wait": "Wait for the conversion to finish before adding more files",
+        "status_drop_error": "Unable to read dropped files: {error}",
+        "status_queue": "{count} model(s) queued",
+        "status_queue_rejected": "{count} model(s) queued — {rejected} ignored",
+        "status_cancelling": "Cancelling…",
+        "status_cancelled": "Queue cancelled",
+        "status_done": "Operation complete: {successes}/{total}",
+        "state_waiting": "Waiting",
+        "state_running": "Running",
+        "state_cancelled": "Cancelled",
+        "state_completed": "Completed",
+        "state_analyzed": "Analyzed",
+        "state_error": "Error",
+        "select_models": "Select ComfyUI models",
+        "models_filter": "Models",
+        "all_files": "All files",
+        "destination_folder": "Destination folder",
+        "no_model_title": "No model",
+        "no_model_message": "Add at least one model to convert.",
+        "invalid_value_title": "Invalid value",
+        "invalid_value_message": "Min GEMM must be an integer greater than or equal to zero.",
+        "invalid_folder_title": "Invalid folder",
+        "invalid_folder_message": "The destination folder does not exist.",
+        "existing_files_title": "Existing files",
+        "existing_files_message": "{count} destination file(s) already exist and will be overwritten. Continue?",
+        "active_conversion_title": "Conversion in progress",
+        "active_conversion_message": "Stop the conversion and close the application?",
+        "missing_script_title": "Missing script",
+        "missing_script_message": "File not found:\n{path}",
+        "log_queue_start": "Starting ConvRot queue",
+        "log_launch_error": "LAUNCH ERROR: {error}\n",
+        "log_cancelled": "\nQueue cancelled.\n",
+        "log_done": "\nOperation complete: {successes}/{total}.\n",
+    },
+}
+
 
 def enable_high_dpi_awareness() -> None:
     """Avoid Windows bitmap scaling (blur) and use the monitor's real DPI."""
@@ -95,7 +210,7 @@ class ConvRotApp:
 
     def __init__(self) -> None:
         if TkinterDnD is None:
-            raise SystemExit("Dipendenza mancante: tkinterdnd2. Esegui prima setup.bat.")
+            raise SystemExit("Missing dependency: tkinterdnd2. Run setup.bat first.")
         enable_high_dpi_awareness()
         self.root = TkinterDnD.Tk()
         self.root.title("ComfyUI ConvRot Converter")
@@ -117,6 +232,7 @@ class ConvRotApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.files: list[Path] = []
+        self.file_states: dict[Path, str] = {}
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.process: subprocess.Popen[str] | None = None
@@ -128,12 +244,25 @@ class ConvRotApp:
         self.downcast = tk.BooleanVar(value=False)
         self.write_report = tk.BooleanVar(value=True)
         self.min_gemm = tk.StringVar(value="256")
-        self.status = tk.StringVar(value="Trascina qui uno o più modelli")
-        self.drop_default_text = "↓  TRASCINA QUI I MODELLI  ↓\n\n.safetensors  .pth  .pt  .ckpt  .bin"
+        self.current_language = "it"
+        self.language = tk.StringVar(value="ITA")
+        self.status = tk.StringVar(value=self._t("status_drop"))
+        self.status_context: tuple[str, dict[str, object]] | None = ("status_drop", {})
 
         self._configure_style()
         self._build_ui()
         self.root.after(100, self._poll_events)
+
+    def _t(self, key: str, **values: object) -> str:
+        return TRANSLATIONS[self.current_language][key].format(**values)
+
+    def _set_status(self, key: str, **values: object) -> None:
+        self.status_context = (key, values)
+        self.status.set(self._t(key, **values))
+
+    def _set_literal_status(self, text: str) -> None:
+        self.status_context = None
+        self.status.set(text)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self.root)
@@ -159,16 +288,24 @@ class ConvRotApp:
         shell = ttk.Frame(self.root, padding=24)
         shell.pack(fill="both", expand=True)
 
-        ttk.Label(shell, text="ConvRot Converter", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            shell,
-            text="Quantizzazione INT8 + ConvRot per modelli ComfyUI, basata sullo script ufficiale Comfy-Org.",
-            style="Muted.TLabel",
-        ).pack(anchor="w", pady=(2, 16))
+        header = ttk.Frame(shell)
+        header.pack(fill="x")
+        ttk.Label(header, text="ConvRot Converter", style="Title.TLabel").pack(side="left", anchor="w")
+        language_box = ttk.Frame(header)
+        language_box.pack(side="right", anchor="e")
+        self.language_label = ttk.Label(language_box, text=self._t("language"), style="Muted.TLabel")
+        self.language_label.pack(side="left", padx=(0, 6))
+        self.language_switch = ttk.Combobox(
+            language_box, textvariable=self.language, values=("ITA", "ENG"), state="readonly", width=5,
+        )
+        self.language_switch.pack(side="left")
+        self.language_switch.bind("<<ComboboxSelected>>", self._change_language)
+        self.subtitle_label = ttk.Label(shell, text=self._t("subtitle"), style="Muted.TLabel")
+        self.subtitle_label.pack(anchor="w", pady=(2, 16))
 
         self.drop = tk.Label(
             shell,
-            text=self.drop_default_text,
+            text=self._t("drop_default"),
             bg=self.PANEL,
             fg=self.ACCENT,
             font=("Segoe UI Semibold", 13),
@@ -181,16 +318,19 @@ class ConvRotApp:
 
         buttons = ttk.Frame(shell)
         buttons.pack(fill="x", pady=10)
-        ttk.Button(buttons, text="Aggiungi file", command=self._browse_files).pack(side="left")
-        ttk.Button(buttons, text="Rimuovi selezionati", command=self._remove_selected).pack(side="left", padx=8)
-        ttk.Button(buttons, text="Svuota", command=self._clear_files).pack(side="left")
+        self.add_button = ttk.Button(buttons, text=self._t("add_files"), command=self._browse_files)
+        self.add_button.pack(side="left")
+        self.remove_button = ttk.Button(buttons, text=self._t("remove_selected"), command=self._remove_selected)
+        self.remove_button.pack(side="left", padx=8)
+        self.clear_button = ttk.Button(buttons, text=self._t("clear"), command=self._clear_files)
+        self.clear_button.pack(side="left")
 
         table_frame = ttk.Frame(shell, style="Panel.TFrame")
         table_frame.pack(fill="both", expand=True)
         self.table = ttk.Treeview(table_frame, columns=("file", "size", "state"), show="headings", height=6)
-        self.table.heading("file", text="Modello")
-        self.table.heading("size", text="Dimensione")
-        self.table.heading("state", text="Stato")
+        self.table.heading("file", text=self._t("model"))
+        self.table.heading("size", text=self._t("size"))
+        self.table.heading("state", text=self._t("state"))
         self.table.column("file", width=round(560 * self.ui_scale), anchor="w")
         self.table.column("size", width=round(100 * self.ui_scale), anchor="e")
         self.table.column("state", width=round(120 * self.ui_scale), anchor="center")
@@ -201,17 +341,23 @@ class ConvRotApp:
 
         options = ttk.Frame(shell, style="Panel.TFrame", padding=14)
         options.pack(fill="x", pady=12)
-        ttk.Label(options, text="Cartella output (vuota = accanto all'originale):",
-                  background=self.PANEL).grid(row=0, column=0, columnspan=3, sticky="w")
+        self.output_label = ttk.Label(options, text=self._t("output_folder"), background=self.PANEL)
+        self.output_label.grid(row=0, column=0, columnspan=3, sticky="w")
         output_entry = tk.Entry(options, textvariable=self.output_dir, bg=self.PANEL_2, fg=self.TEXT,
                                 insertbackground=self.TEXT, relief="flat", font=("Segoe UI", 10))
         output_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 10), ipady=6)
-        ttk.Button(options, text="Sfoglia", command=self._browse_output).grid(row=1, column=2, padx=(8, 0), pady=(5, 10))
-        ttk.Checkbutton(options, text="Solo analisi (non scrive file)", variable=self.dry_run).grid(row=2, column=0, sticky="w")
-        ttk.Checkbutton(options, text="MSE clip (sperimentale)", variable=self.mseclip).grid(row=2, column=1, sticky="w")
-        ttk.Checkbutton(options, text="Riduci FP32 residui", variable=self.downcast).grid(row=3, column=0, sticky="w")
-        ttk.Checkbutton(options, text="Salva report qualità .tsv", variable=self.write_report).grid(row=3, column=1, sticky="w")
-        ttk.Label(options, text="Min GEMM:", background=self.PANEL).grid(row=2, column=2, sticky="e")
+        self.browse_output_button = ttk.Button(options, text=self._t("browse"), command=self._browse_output)
+        self.browse_output_button.grid(row=1, column=2, padx=(8, 0), pady=(5, 10))
+        self.dry_run_check = ttk.Checkbutton(options, text=self._t("dry_run"), variable=self.dry_run)
+        self.dry_run_check.grid(row=2, column=0, sticky="w")
+        self.mse_check = ttk.Checkbutton(options, text=self._t("mse_clip"), variable=self.mseclip)
+        self.mse_check.grid(row=2, column=1, sticky="w")
+        self.downcast_check = ttk.Checkbutton(options, text=self._t("downcast"), variable=self.downcast)
+        self.downcast_check.grid(row=3, column=0, sticky="w")
+        self.report_check = ttk.Checkbutton(options, text=self._t("quality_report"), variable=self.write_report)
+        self.report_check.grid(row=3, column=1, sticky="w")
+        self.min_gemm_label = ttk.Label(options, text=self._t("min_gemm"), background=self.PANEL)
+        self.min_gemm_label.grid(row=2, column=2, sticky="e")
         tk.Spinbox(options, from_=0, to=8192, increment=16, textvariable=self.min_gemm, width=8,
                    bg=self.PANEL_2, fg=self.TEXT, buttonbackground=self.PANEL_2, relief="flat").grid(row=3, column=2, sticky="e")
         options.columnconfigure(0, weight=1)
@@ -219,9 +365,9 @@ class ConvRotApp:
 
         action = ttk.Frame(shell)
         action.pack(fill="x")
-        self.cancel_button = ttk.Button(action, text="Annulla", style="Danger.TButton", command=self._cancel, state="disabled")
+        self.cancel_button = ttk.Button(action, text=self._t("cancel"), style="Danger.TButton", command=self._cancel, state="disabled")
         self.cancel_button.pack(side="right", padx=(8, 0))
-        self.start_button = ttk.Button(action, text="Avvia conversione", style="Accent.TButton", command=self._start)
+        self.start_button = ttk.Button(action, text=self._t("start"), style="Accent.TButton", command=self._start)
         self.start_button.pack(side="right")
         # Pack fixed-size actions before the expanding status label. Otherwise
         # the label can consume the whole row at high Windows scaling factors.
@@ -246,6 +392,38 @@ class ConvRotApp:
             options, action, log_frame, self.log,
         )
 
+    def _change_language(self, _event: tk.Event | None = None) -> None:
+        self.current_language = "en" if self.language.get() == "ENG" else "it"
+        self._apply_language()
+
+    def _apply_language(self) -> None:
+        self.language_label.configure(text=self._t("language"))
+        self.subtitle_label.configure(text=self._t("subtitle"))
+        self.add_button.configure(text=self._t("add_files"))
+        self.remove_button.configure(text=self._t("remove_selected"))
+        self.clear_button.configure(text=self._t("clear"))
+        self.output_label.configure(text=self._t("output_folder"))
+        self.browse_output_button.configure(text=self._t("browse"))
+        self.dry_run_check.configure(text=self._t("dry_run"))
+        self.mse_check.configure(text=self._t("mse_clip"))
+        self.downcast_check.configure(text=self._t("downcast"))
+        self.report_check.configure(text=self._t("quality_report"))
+        self.min_gemm_label.configure(text=self._t("min_gemm"))
+        self.cancel_button.configure(text=self._t("cancel"))
+        self.start_button.configure(text=self._t("start"))
+        self.table.heading("file", text=self._t("model"))
+        self.table.heading("size", text=self._t("size"))
+        self.table.heading("state", text=self._t("state"))
+        self._reset_drop_banner()
+        for path, state_key in self.file_states.items():
+            if self.table.exists(str(path)):
+                values = list(self.table.item(str(path), "values"))
+                values[2] = self._t(state_key)
+                self.table.item(str(path), values=values)
+        if self.status_context is not None:
+            key, values = self.status_context
+            self.status.set(self._t(key, **values))
+
     def _register_drop_targets(self, *widgets: tk.Misc) -> None:
         for widget in widgets:
             widget.drop_target_register(DND_FILES)
@@ -255,16 +433,21 @@ class ConvRotApp:
 
     def _on_drop_enter(self, event: tk.Event) -> str:
         if not (self.worker and self.worker.is_alive()):
-            self.drop.configure(bg="#075985", fg="#e0f2fe", text="RILASCIA PER AGGIUNGERE I MODELLI")
-            self.status.set("Rilascia i file nella finestra")
+            self.drop.configure(bg="#075985", fg="#e0f2fe", text=self._t("drop_release"))
+            self._set_status("status_release")
         return getattr(event, "action", COPY) or COPY
 
     def _on_drop_leave(self, event: tk.Event) -> str:
         self._reset_drop_banner()
+        if not (self.worker and self.worker.is_alive()):
+            if self.files:
+                self._set_status("status_queue", count=len(self.files))
+            else:
+                self._set_status("status_drop")
         return getattr(event, "action", COPY) or COPY
 
     def _reset_drop_banner(self) -> None:
-        self.drop.configure(bg=self.PANEL, fg=self.ACCENT, text=self.drop_default_text)
+        self.drop.configure(bg=self.PANEL, fg=self.ACCENT, text=self._t("drop_default"))
 
     @staticmethod
     def _size_label(path: Path) -> str:
@@ -278,20 +461,23 @@ class ConvRotApp:
     def _on_drop(self, event: tk.Event) -> str:
         self._reset_drop_banner()
         if self.worker and self.worker.is_alive():
-            self.status.set("Attendi la fine della conversione prima di aggiungere altri file")
+            self._set_status("status_wait")
             return getattr(event, "action", COPY) or COPY
         try:
             dropped = [Path(item) for item in self.root.tk.splitlist(event.data)]
         except (tk.TclError, TypeError) as exc:
-            self.status.set(f"Impossibile leggere i file trascinati: {exc}")
+            self._set_status("status_drop_error", error=exc)
             return getattr(event, "action", COPY) or COPY
         self._add_files(dropped)
         return getattr(event, "action", COPY) or COPY
 
     def _browse_files(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="Seleziona modelli ComfyUI",
-            filetypes=[("Modelli", "*.safetensors *.pth *.pt *.ckpt *.bin"), ("Tutti i file", "*.*")],
+            title=self._t("select_models"),
+            filetypes=[
+                (self._t("models_filter"), "*.safetensors *.pth *.pt *.ckpt *.bin"),
+                (self._t("all_files"), "*.*"),
+            ],
         )
         self._add_files([Path(p) for p in paths])
 
@@ -304,8 +490,15 @@ class ConvRotApp:
                 continue
             if path not in self.files:
                 self.files.append(path)
-                self.table.insert("", "end", iid=str(path), values=(path.name, self._size_label(path), "In attesa"))
-        self.status.set(f"{len(self.files)} modello/i in coda" + (f" — {rejected} ignorati" if rejected else ""))
+                self.file_states[path] = "state_waiting"
+                self.table.insert(
+                    "", "end", iid=str(path),
+                    values=(path.name, self._size_label(path), self._t("state_waiting")),
+                )
+        if rejected:
+            self._set_status("status_queue_rejected", count=len(self.files), rejected=rejected)
+        else:
+            self._set_status("status_queue", count=len(self.files))
 
     def _remove_selected(self) -> None:
         if self.worker and self.worker.is_alive():
@@ -314,18 +507,20 @@ class ConvRotApp:
             path = Path(iid)
             if path in self.files:
                 self.files.remove(path)
+            self.file_states.pop(path, None)
             self.table.delete(iid)
-        self.status.set(f"{len(self.files)} modello/i in coda")
+        self._set_status("status_queue", count=len(self.files))
 
     def _clear_files(self) -> None:
         if self.worker and self.worker.is_alive():
             return
         self.files.clear()
+        self.file_states.clear()
         self.table.delete(*self.table.get_children())
-        self.status.set("Trascina qui uno o più modelli")
+        self._set_status("status_drop")
 
     def _browse_output(self) -> None:
-        chosen = filedialog.askdirectory(title="Cartella di destinazione")
+        chosen = filedialog.askdirectory(title=self._t("destination_folder"))
         if chosen:
             self.output_dir.set(chosen)
 
@@ -337,26 +532,26 @@ class ConvRotApp:
 
     def _start(self) -> None:
         if not self.files:
-            messagebox.showinfo("Nessun modello", "Aggiungi almeno un modello da convertire.")
+            messagebox.showinfo(self._t("no_model_title"), self._t("no_model_message"))
             return
         try:
             min_gemm = int(self.min_gemm.get())
             if min_gemm < 0:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("Valore non valido", "Min GEMM deve essere un numero intero maggiore o uguale a zero.")
+            messagebox.showerror(self._t("invalid_value_title"), self._t("invalid_value_message"))
             return
 
         out_dir = Path(self.output_dir.get()).expanduser().resolve() if self.output_dir.get().strip() else None
         if out_dir and not out_dir.is_dir():
-            messagebox.showerror("Cartella non valida", "La cartella di destinazione non esiste.")
+            messagebox.showerror(self._t("invalid_folder_title"), self._t("invalid_folder_message"))
             return
 
         if not self.dry_run.get():
             existing = [output_path(source, out_dir) for source in self.files if output_path(source, out_dir).exists()]
             if existing and not messagebox.askyesno(
-                "File già esistenti",
-                f"{len(existing)} file di destinazione esistono già e saranno sovrascritti. Continuare?",
+                self._t("existing_files_title"),
+                self._t("existing_files_message", count=len(existing)),
             ):
                 return
 
@@ -364,7 +559,7 @@ class ConvRotApp:
         self.start_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.drop.configure(cursor="arrow")
-        self._append_log("\n" + "=" * 72 + "\nAvvio coda ConvRot\n")
+        self._append_log("\n" + "=" * 72 + "\n" + self._t("log_queue_start") + "\n")
         snapshot = list(self.files)
         options = (out_dir, self.dry_run.get(), min_gemm, self.mseclip.get(), self.downcast.get(), self.write_report.get())
         self.worker = threading.Thread(target=self._run_queue, args=(snapshot, options), daemon=True)
@@ -382,7 +577,7 @@ class ConvRotApp:
                 report = destination.with_suffix(".quality.tsv")
             command = build_command(source, destination, dry_run=dry_run, min_gemm=min_gemm,
                                     mseclip=mseclip, downcast_fp32=downcast, report_path=report)
-            self.events.put(("state", (source, "In corso")))
+            self.events.put(("state", (source, "state_running")))
             self.events.put(("status", f"{index}/{len(files)} — {source.name}"))
             self.events.put(("log", f"\n>>> {source}\n"))
             env = os.environ.copy()
@@ -405,23 +600,23 @@ class ConvRotApp:
                     self.events.put(("log", line))
                 return_code = self.process.wait()
             except Exception as exc:
-                self.events.put(("log", f"ERRORE avvio: {exc}\n"))
+                self.events.put(("log_key", ("log_launch_error", {"error": exc})))
                 return_code = -1
             finally:
                 self.process = None
             if self.cancel_requested:
-                self.events.put(("state", (source, "Annullato")))
+                self.events.put(("state", (source, "state_cancelled")))
                 break
             if return_code == 0:
                 successes += 1
-                self.events.put(("state", (source, "Completato" if not dry_run else "Analizzato")))
+                self.events.put(("state", (source, "state_completed" if not dry_run else "state_analyzed")))
             else:
-                self.events.put(("state", (source, "Errore")))
+                self.events.put(("state", (source, "state_error")))
         self.events.put(("done", (successes, len(files), self.cancel_requested)))
 
     def _cancel(self) -> None:
         self.cancel_requested = True
-        self.status.set("Annullamento in corso…")
+        self._set_status("status_cancelling")
         process = self.process
         if process and process.poll() is None:
             try:
@@ -435,35 +630,47 @@ class ConvRotApp:
                 kind, payload = self.events.get_nowait()
                 if kind == "log":
                     self._append_log(str(payload))
+                elif kind == "log_key":
+                    key, values = payload  # type: ignore[misc]
+                    self._append_log(self._t(key, **values))
                 elif kind == "status":
-                    self.status.set(str(payload))
+                    self._set_literal_status(str(payload))
                 elif kind == "state":
-                    source, state = payload  # type: ignore[misc]
+                    source, state_key = payload  # type: ignore[misc]
+                    self.file_states[source] = state_key
                     if self.table.exists(str(source)):
                         values = list(self.table.item(str(source), "values"))
-                        values[2] = state
+                        values[2] = self._t(state_key)
                         self.table.item(str(source), values=values)
                 elif kind == "done":
                     successes, total, cancelled = payload  # type: ignore[misc]
                     self.start_button.configure(state="normal")
                     self.cancel_button.configure(state="disabled")
                     self.drop.configure(cursor="hand2")
-                    self.status.set("Coda annullata" if cancelled else f"Operazione conclusa: {successes}/{total}")
-                    self._append_log("\nCoda annullata.\n" if cancelled else f"\nOperazione conclusa: {successes}/{total}.\n")
+                    if cancelled:
+                        self._set_status("status_cancelled")
+                        self._append_log(self._t("log_cancelled"))
+                    else:
+                        self._set_status("status_done", successes=successes, total=total)
+                        self._append_log(self._t("log_done", successes=successes, total=total))
         except queue.Empty:
             pass
         self.root.after(100, self._poll_events)
 
     def _on_close(self) -> None:
         if self.worker and self.worker.is_alive():
-            if not messagebox.askyesno("Conversione attiva", "Interrompere la conversione e chiudere?"):
+            if not messagebox.askyesno(
+                self._t("active_conversion_title"), self._t("active_conversion_message")
+            ):
                 return
             self._cancel()
         self.root.destroy()
 
     def run(self) -> None:
         if not QUANTIZER.is_file():
-            messagebox.showerror("Script mancante", f"File non trovato:\n{QUANTIZER}")
+            messagebox.showerror(
+                self._t("missing_script_title"), self._t("missing_script_message", path=QUANTIZER)
+            )
             return
         self.root.mainloop()
 

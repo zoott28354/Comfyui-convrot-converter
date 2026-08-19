@@ -2,8 +2,8 @@
 setlocal
 cd /d "%~dp0"
 
-rem Non usare eventuali mirror/indici extra presenti nella configurazione pip
-rem dell'utente (per esempio pypi.ngc.nvidia.com non raggiungibile).
+rem Ignore extra package mirrors/indexes from the user's global pip configuration
+rem (for example, an unreachable pypi.ngc.nvidia.com mirror).
 set "PIP_CONFIG_FILE=NUL"
 set "PIP_EXTRA_INDEX_URL="
 set "PIP_TRUSTED_HOST="
@@ -11,36 +11,36 @@ set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 
 where py >nul 2>nul
 if errorlevel 1 (
-    echo Python Launcher non trovato. Installa Python 3.12 da python.org e riprova.
+    echo Python Launcher was not found. Install Python 3.12 from python.org and try again.
     pause
     exit /b 1
 )
 
 if not exist ".venv\Scripts\python.exe" (
-    echo Creazione ambiente virtuale Python 3.12...
+    echo Creating Python 3.12 virtual environment...
     py -3.12 -m venv .venv
     if errorlevel 1 goto :error
 )
 
-echo Aggiornamento pip...
+echo Updating pip...
 ".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple --upgrade pip
 if errorlevel 1 goto :error
 
-echo Installazione PyTorch con supporto CUDA 12.8...
+echo Installing PyTorch with CUDA 12.8 support...
 ".venv\Scripts\python.exe" -m pip install torch --index-url https://download.pytorch.org/whl/cu128
 if errorlevel 1 goto :error
 
-echo Installazione dipendenze dell'interfaccia e ConvRot...
+echo Installing interface and ConvRot dependencies...
 ".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple -r requirements.txt
 if errorlevel 1 goto :error
 
 echo.
-echo Installazione completata. Avvia il programma con AVVIA.bat
+echo Installation complete. Start the application with START.bat
 pause
 exit /b 0
 
 :error
 echo.
-echo Installazione non riuscita. Controlla i messaggi qui sopra.
+echo Installation failed. Review the messages above.
 pause
 exit /b 1

@@ -1,57 +1,67 @@
-# ComfyUI ConvRot Converter per Windows
+# ComfyUI ConvRot Converter for Windows
 
-Interfaccia drag-and-drop per convertire modelli ComfyUI in **INT8 + ConvRot**. La conversione è eseguita dallo script ufficiale [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py) di Comfy-Org.
+A bilingual drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**. The conversion is performed by Comfy-Org's official [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py) script, with protected presets for selected model families.
 
-## Installazione
+## Installation
 
-1. Installa [Python 3.12 a 64 bit](https://www.python.org/downloads/) selezionando anche **Python Launcher**.
-2. Fai doppio clic su `setup.bat`. Verrà creata una cartella `.venv` locale e saranno installati PyTorch CUDA, `comfy-kitchen`, `safetensors` e il supporto drag-and-drop.
-3. Dalle volte successive avvia semplicemente `AVVIA.bat`.
+1. Install [64-bit Python 3.12](https://www.python.org/downloads/) and make sure **Python Launcher** is selected.
+2. Double-click `setup.bat`. It creates a local `.venv` and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and drag-and-drop support.
+3. For subsequent launches, simply run `START.bat`.
 
-Il primo setup scarica PyTorch e può richiedere diversi GB. La conversione richiede una GPU NVIDIA compatibile CUDA e sufficiente VRAM; non modifica mai il modello originale.
+The first setup downloads PyTorch and may require several gigabytes. Conversion requires a CUDA-compatible NVIDIA GPU and enough VRAM. The source model is never modified.
 
-Il setup ignora gli eventuali mirror aggiuntivi configurati globalmente in `pip` e usa soltanto PyPI e l'indice ufficiale PyTorch CUDA. Questo evita blocchi causati da mirror aziendali o NVIDIA non raggiungibili.
+The setup ignores additional package indexes configured globally in `pip` and uses only PyPI and the official PyTorch CUDA index. This prevents unreachable corporate or NVIDIA mirrors from blocking installation.
 
-## Uso
+## Language
 
-1. Trascina uno o più file `.safetensors`, `.pth`, `.pt`, `.ckpt` o `.bin` nell'area azzurra.
-2. Lascia vuota la cartella di output per salvare accanto all'originale, oppure scegline una.
-3. Per un'architettura nuova, esegui prima **Solo analisi**: mostra quali layer verranno convertiti senza scrivere nulla.
-4. Premi **Avvia conversione**.
+The application starts in Italian. Use the **ITA / ENG** selector in the upper-right corner to switch the complete interface to English at runtime. Labels, queue states, dialogs, validation messages, and application-generated log entries are localized. Output from the underlying Comfy-Org conversion script remains in its original language.
 
-Nel log, la sezione **source storage dtypes** mostra la precisione reale letta dall'header del modello (`F16`, `BF16`, `F8_E4M3`, `I8`). Non affidarti soltanto al nome del file o alla riga `compute/passthrough dtype`, che descrive invece la precisione scelta per i layer non quantizzati. Se il sorgente è già prevalentemente FP8 o INT8, viene mostrato un avviso esplicito contro la doppia quantizzazione.
+## Usage
 
-### Preset automatico LTX-2.3
+1. Drop one or more `.safetensors`, `.pth`, `.pt`, `.ckpt`, or `.bin` files anywhere in the application window.
+2. Leave the output folder blank to save next to each source, or choose a different destination.
+3. For an unfamiliar architecture, run **Analysis only** first. It reports which layers would be converted without writing an output file.
+4. Click **Start conversion**.
 
-I bundle LTX-2.3 a 48 blocchi vengono riconosciuti automaticamente. Il converter applica la selezione protetta Comfy-Org: quantizza tutti i 34 Linear dei blocchi 2–45 (1.496 layer), mantiene in alta precisione i blocchi 0, 1, 46 e 47 e i connettori audio/video, e include i piccoli `to_gate_logits` ignorando `Min GEMM` soltanto per questo preset. Se la struttura non produce esattamente 1.496 layer, la conversione viene fermata anziché creare un file ambiguo.
+The **source storage dtypes** section in the log reports the actual precision stored in the model header (`F16`, `BF16`, `F8_E4M3`, or `I8`). Do not rely only on the filename or on `compute/passthrough dtype`, which describes the precision selected for non-quantized layers. The converter warns when the source is already predominantly FP8 or INT8 to avoid double quantization.
 
-I text encoder standalone vengono riconosciuti automaticamente con preset protetti:
+## Protected automatic presets
 
-- **UMT5/UMT5-XXL**: quantizza le proiezioni attention e feed-forward di tutti i blocchi encoder, mantenendo embedding condiviso, normalizzazioni e finali nella precisione sorgente.
-- **Gemma**: quantizza soltanto attention/MLP dei blocchi linguistici interni; embedding, vision tower, teste e primo/ultimo blocco restano BF16/FP16.
-- **Qwen/Qwen-VL**: applica la stessa protezione conservativa a embedding, componenti visuali, teste e blocchi linguistici estremi.
+### LTX-2.3
 
-I preset text encoder eseguono anche un controllo di uniformità strutturale per blocco e interrompono la conversione se il checkpoint non corrisponde alla famiglia riconosciuta. I checkpoint AIO contenenti anche un diffusion model non vengono scambiati per text encoder standalone.
+The converter automatically recognizes 48-block LTX-2.3 bundles and applies the protected Comfy-Org selection. It quantizes all 34 Linear layers in blocks 2–45, for a total of 1,496 layers; blocks 0, 1, 46, and 47 and the audio/video connectors remain at source precision. The small `to_gate_logits` layers are included by bypassing **Min GEMM** only for this preset. Conversion stops if the detected structure does not produce exactly 1,496 layers.
 
-Da riga di comando il comportamento può essere controllato con `--preset auto`, `--preset ltx2_official`, `--preset umt5_text`, `--preset gemma_text`, `--preset qwen_text` o `--preset generic`. La GUI usa `auto`.
+### Standalone text encoders
 
-Il trascinamento funziona sull'intera finestra, compresa la tabella e il riquadro del log. Su Windows non avviare `AVVIA.bat` come amministratore: per ragioni di sicurezza Windows blocca il drag-and-drop da Esplora file non elevato verso un programma eseguito come amministratore.
+Standalone text encoders are automatically recognized and use conservative presets:
 
-L'interfaccia abilita la modalità DPI per-monitor di Windows e adatta automaticamente dimensioni iniziali e colonne allo scaling del desktop (inclusi display 4K al 150–200%).
+- **UMT5 / UMT5-XXL:** quantizes attention and feed-forward projections in every encoder block while preserving the shared embedding, normalization, and final layers.
+- **Gemma:** quantizes only attention and MLP projections in internal language blocks. Embeddings, the vision tower, output heads, and the first and last language blocks remain BF16/FP16.
+- **Qwen / Qwen-VL:** applies the same protection to embeddings, visual components, output heads, and the first and last language blocks.
 
-Il nome viene trasformato come nello script ufficiale: `model_bf16.safetensors` diventa `model_int8_convrot.safetensors`; in assenza di `bf16`, `fp16` o `fp32`, viene aggiunto `_int8_convrot`.
+Text-encoder presets validate that every selected block has a uniform structure and stop if the checkpoint does not match the recognized family. AIO checkpoints that also contain a diffusion model are not mistaken for standalone text encoders.
 
-### Opzioni
+From the command line, selection can be controlled with `--preset auto`, `--preset ltx2_official`, `--preset umt5_text`, `--preset gemma_text`, `--preset qwen_text`, or `--preset generic`. The GUI uses `auto`.
 
-- **Min GEMM 256**: impostazione ufficiale consigliata; evita layer troppo piccoli, dove INT8 sarebbe solo overhead.
-- **MSE clip**: modalità sperimentale che può ridurre l'errore dei pesi; convalidare sempre il risultato.
-- **Riduci FP32 residui**: converte in precisione di calcolo alcuni layer FP32 non quantizzati, riducendo lo spazio.
-- **Report qualità**: produce un file `.quality.tsv` con errore relativo, similarità coseno e group size di ogni layer.
+## Interface and file handling
 
-## Note importanti
+Drag-and-drop works across the entire window, including the queue table and log panel. On Windows, do not run `START.bat` as administrator: Windows blocks dragging from a non-elevated File Explorer process into an elevated application.
 
-- ConvRot è pensato per i layer compatibili rilevati automaticamente. Alcune architetture o loader con rimappatura delle chiavi possono non essere adatti: per questo è utile il dry run.
-- Il programma elabora i modelli uno alla volta per limitare il consumo di memoria.
-- Se un file di destinazione esiste già, l'app chiede conferma prima di sovrascriverlo.
+The interface enables per-monitor Windows DPI awareness and scales its initial size and table columns automatically, including 4K displays at 150–200% desktop scaling.
 
-Lo script Comfy-Org incluso è distribuito secondo GPL-3.0; la copia della licenza è in `LICENSE-COMFY-MODEL-TOOLS`.
+Output names follow the official script: `model_bf16.safetensors` becomes `model_int8_convrot.safetensors`. If the original name does not contain `bf16`, `fp16`, or `fp32`, `_int8_convrot` is appended.
+
+## Options
+
+- **Min GEMM 256:** recommended official default. Skips layers that are too small for INT8 to provide a useful performance benefit.
+- **MSE clip:** experimental mode that can reduce weight reconstruction error; always validate the result.
+- **Downcast remaining FP32:** converts selected non-quantized FP32 layers to the compute dtype to reduce output size.
+- **Quality report:** writes a `.quality.tsv` file containing relative error, cosine similarity, and group size for every quantized layer.
+
+## Important notes
+
+- ConvRot is applied only to automatically detected compatible layers. Some architectures or loaders that remap weight keys may not be suitable; use Analysis only first.
+- Models are processed sequentially to limit memory usage.
+- The application asks for confirmation before overwriting an existing destination file.
+
+The included Comfy-Org script is distributed under GPL-3.0. A copy of its license is provided in `LICENSE-COMFY-MODEL-TOOLS`.

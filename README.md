@@ -8,7 +8,7 @@ This application was created for users who keep many models spread across numero
 
 1. Install standard 64-bit [Python 3.12 or 3.13](https://www.python.org/downloads/). Python Launcher is recommended but not required.
 2. Double-click `setup.bat`. It detects the system Python installation and lets you confirm it or choose Python 3.12, Python 3.13, or a custom `python.exe`. It then creates a local `.venv` and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and drag-and-drop support.
-3. For subsequent launches, simply run `START.bat`.
+3. After a successful installation, the setup creates `start.bat`. Use that generated launcher for subsequent starts.
 
 The first setup downloads PyTorch and may require several gigabytes. Conversion requires a CUDA-compatible NVIDIA GPU and enough VRAM. The source model is never modified.
 
@@ -43,7 +43,7 @@ From the command line, selection can be controlled with `--preset auto`, `--pres
 
 ## Interface and file handling
 
-Drag-and-drop works across the entire window, including the queue table and log panel. On Windows, do not run `START.bat` as administrator: Windows blocks dragging from a non-elevated File Explorer process into an elevated application.
+Drag-and-drop works across the entire window, including the queue table and log panel. On Windows, do not run `start.bat` as administrator: Windows blocks dragging from a non-elevated File Explorer process into an elevated application.
 
 The interface enables per-monitor Windows DPI awareness and scales its initial size and table columns automatically, including 4K displays at 150–200% desktop scaling.
 

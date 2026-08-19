@@ -95,8 +95,11 @@ echo Installing interface and ConvRot dependencies...
 ".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple -r requirements.txt
 if errorlevel 1 goto :error
 
+call :write_launcher
+if errorlevel 1 goto :error
+
 echo.
-echo Installation complete. Start the application with START.bat
+echo Installation complete. Start the application with start.bat
 pause
 exit /b 0
 
@@ -133,6 +136,20 @@ for /f "delims=" %%V in ('"%PYTHON_EXE%" %PYTHON_ARGS% -c "import platform; prin
 for /f "delims=" %%X in ('"%PYTHON_EXE%" %PYTHON_ARGS% -c "import sys; print(sys.executable)"') do set "PYTHON_PATH=%%X"
 echo Detected Python %PYTHON_VERSION%
 echo   %PYTHON_PATH%
+exit /b 0
+
+:write_launcher
+echo Creating start.bat...
+>start.bat echo @echo off
+>>start.bat echo setlocal
+>>start.bat echo cd /d "%%~dp0"
+>>start.bat echo if not exist ".venv\Scripts\pythonw.exe" ^(
+>>start.bat echo     echo Python environment not found. Run setup.bat first.
+>>start.bat echo     pause
+>>start.bat echo     exit /b 1
+>>start.bat echo ^)
+>>start.bat echo start "" ".venv\Scripts\pythonw.exe" "%%~dp0convrot_gui.py"
+if not exist "start.bat" exit /b 1
 exit /b 0
 
 :error

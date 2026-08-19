@@ -7,3 +7,4 @@ __pycache__/
 *.ckpt
 *.bin
 *.quality.tsv
+start.bat

@@ -1,0 +1,5 @@
+tkinterdnd2>=0.4.3,<1
+safetensors>=0.5,<1
+comfy-kitchen>=0.2.15,<1
+numpy>=2.0,<3
+packaging>=24,<27

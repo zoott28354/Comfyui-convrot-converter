@@ -1,6 +1,8 @@
 # ComfyUI ConvRot Converter for Windows
 
-A bilingual drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**. The conversion is performed by Comfy-Org's official [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py) script, with protected presets for selected model families.
+A drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**, available in English and Italian. The conversion is performed by Comfy-Org's official [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py) script, with protected presets for selected model families.
+
+This application was created for users who keep many models spread across numerous folders. In that situation, repeatedly entering long command-line paths and options quickly becomes inconvenient. With a drag-and-drop queue, models can be collected from different locations, analyzed, and converted through one simple interface.
 
 ## Installation
 
@@ -11,10 +13,6 @@ A bilingual drag-and-drop interface for converting ComfyUI models to **INT8 + Co
 The first setup downloads PyTorch and may require several gigabytes. Conversion requires a CUDA-compatible NVIDIA GPU and enough VRAM. The source model is never modified.
 
 The setup ignores additional package indexes configured globally in `pip` and uses only PyPI and the official PyTorch CUDA index. This prevents unreachable corporate or NVIDIA mirrors from blocking installation.
-
-## Language
-
-The application starts in Italian. Use the **ITA / ENG** selector in the upper-right corner to switch the complete interface to English at runtime. Labels, queue states, dialogs, validation messages, and application-generated log entries are localized. Output from the underlying Comfy-Org conversion script remains in its original language.
 
 ## Usage
 

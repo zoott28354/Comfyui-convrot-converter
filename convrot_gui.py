@@ -244,8 +244,8 @@ class ConvRotApp:
         self.downcast = tk.BooleanVar(value=False)
         self.write_report = tk.BooleanVar(value=True)
         self.min_gemm = tk.StringVar(value="256")
-        self.current_language = "it"
-        self.language = tk.StringVar(value="ITA")
+        self.current_language = "en"
+        self.language = tk.StringVar(value="ENG")
         self.status = tk.StringVar(value=self._t("status_drop"))
         self.status_context: tuple[str, dict[str, object]] | None = ("status_drop", {})
 
@@ -296,7 +296,7 @@ class ConvRotApp:
         self.language_label = ttk.Label(language_box, text=self._t("language"), style="Muted.TLabel")
         self.language_label.pack(side="left", padx=(0, 6))
         self.language_switch = ttk.Combobox(
-            language_box, textvariable=self.language, values=("ITA", "ENG"), state="readonly", width=5,
+            language_box, textvariable=self.language, values=("ENG", "ITA"), state="readonly", width=5,
         )
         self.language_switch.pack(side="left")
         self.language_switch.bind("<<ComboboxSelected>>", self._change_language)

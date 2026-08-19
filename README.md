@@ -6,8 +6,8 @@ This application was created for users who keep many models spread across numero
 
 ## Installation
 
-1. Install [64-bit Python 3.12](https://www.python.org/downloads/) and make sure **Python Launcher** is selected.
-2. Double-click `setup.bat`. It creates a local `.venv` and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and drag-and-drop support.
+1. Install standard 64-bit [Python 3.12 or 3.13](https://www.python.org/downloads/). Python Launcher is recommended but not required.
+2. Double-click `setup.bat`. It detects the system Python installation and lets you confirm it or choose Python 3.12, Python 3.13, or a custom `python.exe`. It then creates a local `.venv` and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and drag-and-drop support.
 3. For subsequent launches, simply run `START.bat`.
 
 The first setup downloads PyTorch and may require several gigabytes. Conversion requires a CUDA-compatible NVIDIA GPU and enough VRAM. The source model is never modified.

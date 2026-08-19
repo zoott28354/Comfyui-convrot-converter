@@ -24,8 +24,7 @@ except ImportError:  # allows helper functions to be imported before setup
 
 APP_DIR = Path(__file__).resolve().parent
 QUANTIZER = APP_DIR / "quant_int8_convrot.py"
-TORCH_CHECKPOINT_EXTENSIONS = {".pth", ".pt", ".ckpt", ".bin"}
-SUPPORTED_EXTENSIONS = {".safetensors", *TORCH_CHECKPOINT_EXTENSIONS}
+SUPPORTED_EXTENSIONS = {".safetensors", ".pth", ".pt", ".ckpt", ".bin"}
 
 TRANSLATIONS = {
     "it": {
@@ -73,12 +72,6 @@ TRANSLATIONS = {
         "invalid_value_message": "Min GEMM deve essere un numero intero maggiore o uguale a zero.",
         "invalid_folder_title": "Cartella non valida",
         "invalid_folder_message": "La cartella di destinazione non esiste.",
-        "existing_files_title": "File già esistenti",
-        "existing_files_message": "{count} file di output o report esistono già e saranno sostituiti in modo atomico. Continuare?",
-        "output_collision_title": "Destinazioni duplicate",
-        "output_collision_message": "Più modelli in coda produrrebbero lo stesso file:\n\n{paths}\n\nScegli un'altra cartella di output oppure rinomina i modelli.",
-        "torch_checkpoint_title": "Checkpoint PyTorch non attendibili",
-        "torch_checkpoint_message": "{count} file usano un formato PyTorch (.pth, .pt, .ckpt o .bin), che ha una superficie di attacco maggiore rispetto a Safetensors.\n\nContinua soltanto se i file provengono da una fonte attendibile. Aprirli comunque?",
         "active_conversion_title": "Conversione attiva",
         "active_conversion_message": "Interrompere la conversione e chiudere?",
         "missing_script_title": "Script mancante",
@@ -133,12 +126,6 @@ TRANSLATIONS = {
         "invalid_value_message": "Min GEMM must be an integer greater than or equal to zero.",
         "invalid_folder_title": "Invalid folder",
         "invalid_folder_message": "The destination folder does not exist.",
-        "existing_files_title": "Existing files",
-        "existing_files_message": "{count} output or report file(s) already exist and will be replaced atomically. Continue?",
-        "output_collision_title": "Duplicate destinations",
-        "output_collision_message": "Multiple queued models would write to the same file:\n\n{paths}\n\nChoose another output folder or rename the models.",
-        "torch_checkpoint_title": "Untrusted PyTorch checkpoints",
-        "torch_checkpoint_message": "{count} file(s) use a PyTorch format (.pth, .pt, .ckpt, or .bin), which has a larger attack surface than Safetensors.\n\nContinue only if the files come from a trusted source. Open them anyway?",
         "active_conversion_title": "Conversion in progress",
         "active_conversion_message": "Stop the conversion and close the application?",
         "missing_script_title": "Missing script",
@@ -185,34 +172,32 @@ def output_path(source: Path, output_dir: Path | None) -> Path:
     return (output_dir or source.parent) / output_name(source)
 
 
-def is_torch_checkpoint(source: Path) -> bool:
-    return source.suffix.lower() in TORCH_CHECKPOINT_EXTENSIONS
+def numbered_output_path(base: Path, number: int) -> Path:
+    if number == 0:
+        return base
+    return base.with_name(f"{base.stem} ({number}){base.suffix}")
 
 
-def output_artifacts(source: Path, output_dir: Path | None, write_report: bool) -> list[Path]:
-    destination = output_path(source, output_dir)
-    artifacts = [destination]
-    if write_report:
-        artifacts.append(destination.with_suffix(".quality.tsv"))
-    return artifacts
-
-
-def find_output_collisions(
+def plan_output_paths(
     sources: list[Path], output_dir: Path | None, write_report: bool
-) -> list[Path]:
-    source_keys = {
-        os.path.normcase(os.path.realpath(os.path.abspath(source))) for source in sources
-    }
-    seen: dict[str, Path] = {}
-    collisions: dict[str, Path] = {}
+) -> dict[Path, Path]:
+    normalize = lambda path: os.path.normcase(os.path.realpath(os.path.abspath(path)))
+    reserved = {normalize(source) for source in sources}
+    planned: dict[Path, Path] = {}
     for source in sources:
-        for artifact in output_artifacts(source, output_dir, write_report):
-            key = os.path.normcase(os.path.realpath(os.path.abspath(artifact)))
-            if key in source_keys or key in seen:
-                collisions[key] = artifact
-            else:
-                seen[key] = artifact
-    return list(collisions.values())
+        base = output_path(source, output_dir)
+        number = 0
+        while True:
+            destination = numbered_output_path(base, number)
+            artifacts = [destination]
+            if write_report:
+                artifacts.append(destination.with_suffix(".quality.tsv"))
+            if not any(normalize(path) in reserved or path.exists() for path in artifacts):
+                break
+            number += 1
+        planned[source] = destination
+        reserved.update(normalize(path) for path in artifacts)
+    return planned
 
 
 def build_command(
@@ -224,7 +209,6 @@ def build_command(
     mseclip: bool,
     downcast_fp32: bool,
     report_path: Path | None,
-    allow_pytorch_checkpoint: bool = False,
 ) -> list[str]:
     command = [sys.executable, "-u", str(QUANTIZER), str(source)]
     if not dry_run and destination is not None:
@@ -238,8 +222,6 @@ def build_command(
         command.append("--downcast-fp32")
     if report_path is not None and not dry_run:
         command.extend(["--verify-report", str(report_path)])
-    if allow_pytorch_checkpoint:
-        command.append("--allow-pytorch-checkpoint")
     return command
 
 
@@ -592,61 +574,34 @@ class ConvRotApp:
             messagebox.showerror(self._t("invalid_folder_title"), self._t("invalid_folder_message"))
             return
 
-        torch_checkpoints = [source for source in self.files if is_torch_checkpoint(source)]
-        if torch_checkpoints and not messagebox.askyesno(
-            self._t("torch_checkpoint_title"),
-            self._t("torch_checkpoint_message", count=len(torch_checkpoints)),
-            icon="warning",
-        ):
-            return
-
-        if not self.dry_run.get():
-            collisions = find_output_collisions(self.files, out_dir, self.write_report.get())
-            if collisions:
-                paths = "\n".join(str(path) for path in collisions[:8])
-                if len(collisions) > 8:
-                    paths += f"\n… +{len(collisions) - 8}"
-                messagebox.showerror(
-                    self._t("output_collision_title"),
-                    self._t("output_collision_message", paths=paths),
-                )
-                return
-
-            artifacts = {
-                artifact
-                for source in self.files
-                for artifact in output_artifacts(source, out_dir, self.write_report.get())
-            }
-            existing = [artifact for artifact in artifacts if artifact.exists()]
-            if existing and not messagebox.askyesno(
-                self._t("existing_files_title"),
-                self._t("existing_files_message", count=len(existing)),
-            ):
-                return
-
         self.cancel_requested = False
         self.start_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         self.drop.configure(cursor="arrow")
         self._append_log("\n" + "=" * 72 + "\n" + self._t("log_queue_start") + "\n")
         snapshot = list(self.files)
-        options = (out_dir, self.dry_run.get(), min_gemm, self.mseclip.get(), self.downcast.get(), self.write_report.get())
+        dry_run = self.dry_run.get()
+        destinations = {} if dry_run else plan_output_paths(snapshot, out_dir, self.write_report.get())
+        options = (destinations, dry_run, min_gemm, self.mseclip.get(), self.downcast.get(), self.write_report.get())
         self.worker = threading.Thread(target=self._run_queue, args=(snapshot, options), daemon=True)
         self.worker.start()
 
-    def _run_queue(self, files: list[Path], options: tuple[Path | None, bool, int, bool, bool, bool]) -> None:
-        out_dir, dry_run, min_gemm, mseclip, downcast, write_report = options
+    def _run_queue(
+        self,
+        files: list[Path],
+        options: tuple[dict[Path, Path], bool, int, bool, bool, bool],
+    ) -> None:
+        destinations, dry_run, min_gemm, mseclip, downcast, write_report = options
         successes = 0
         for index, source in enumerate(files, start=1):
             if self.cancel_requested:
                 break
-            destination = None if dry_run else output_path(source, out_dir)
+            destination = None if dry_run else destinations[source]
             report = None
             if write_report and destination is not None:
                 report = destination.with_suffix(".quality.tsv")
             command = build_command(source, destination, dry_run=dry_run, min_gemm=min_gemm,
-                                    mseclip=mseclip, downcast_fp32=downcast, report_path=report,
-                                    allow_pytorch_checkpoint=is_torch_checkpoint(source))
+                                    mseclip=mseclip, downcast_fp32=downcast, report_path=report)
             self.events.put(("state", (source, "state_running")))
             self.events.put(("status", f"{index}/{len(files)} — {source.name}"))
             self.events.put(("log", f"\n>>> {source}\n"))

@@ -56,11 +56,10 @@ except ImportError:
 from convrot_gui import (
     TRANSLATIONS,
     build_command,
-    find_output_collisions,
-    is_torch_checkpoint,
-    output_artifacts,
+    numbered_output_path,
     output_name,
     output_path,
+    plan_output_paths,
 )
 from quant_int8_convrot import (
     atomic_save_model,
@@ -107,65 +106,46 @@ class HelperTests(unittest.TestCase):
         self.assertIn("--downcast-fp32", command)
         self.assertIn("--verify-report", command)
 
-    def test_build_command_explicitly_allows_trusted_pytorch_checkpoint(self):
-        command = build_command(
-            Path("model.ckpt"), Path("out.safetensors"), dry_run=False, min_gemm=256,
-            mseclip=False, downcast_fp32=False, report_path=None,
-            allow_pytorch_checkpoint=True,
-        )
-        self.assertIn("--allow-pytorch-checkpoint", command)
-
-    def test_recognizes_pytorch_checkpoint_extensions(self):
-        self.assertTrue(is_torch_checkpoint(Path("model.PT")))
-        self.assertFalse(is_torch_checkpoint(Path("model.safetensors")))
-
-    def test_output_artifacts_include_quality_report(self):
+    def test_numbered_output_name(self):
         self.assertEqual(
-            output_artifacts(Path("model.safetensors"), Path("converted"), True),
-            [
-                Path("converted/model_int8_convrot.safetensors"),
-                Path("converted/model_int8_convrot.quality.tsv"),
-            ],
+            numbered_output_path(Path("model.safetensors"), 2),
+            Path("model (2).safetensors"),
         )
 
-    def test_duplicate_names_in_shared_output_folder_are_blocked(self):
-        collisions = find_output_collisions(
-            [Path("folder-a/model.safetensors"), Path("folder-b/model.safetensors")],
-            Path("converted"),
-            True,
-        )
-        self.assertEqual(
-            collisions,
-            [
-                Path("converted/model_int8_convrot.safetensors"),
-                Path("converted/model_int8_convrot.quality.tsv"),
-            ],
-        )
+    def test_duplicate_names_receive_numbers_in_shared_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            output = root / "converted"
+            output.mkdir()
+            first = root / "folder-a" / "model.safetensors"
+            second = root / "folder-b" / "model.safetensors"
+            planned = plan_output_paths([first, second], output, True)
+            self.assertEqual(planned[first], output / "model_int8_convrot.safetensors")
+            self.assertEqual(planned[second], output / "model_int8_convrot (1).safetensors")
 
-    def test_same_names_next_to_sources_do_not_collide(self):
-        self.assertEqual(
-            find_output_collisions(
-                [Path("folder-a/model.safetensors"), Path("folder-b/model.safetensors")],
-                None,
-                True,
-            ),
-            [],
-        )
+    def test_existing_model_or_report_advances_number(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "model.safetensors"
+            (root / "model_int8_convrot.safetensors").write_text("existing", encoding="utf-8")
+            planned = plan_output_paths([source], None, True)
+            self.assertEqual(planned[source], root / "model_int8_convrot (1).safetensors")
 
-    def test_output_cannot_replace_another_queued_source(self):
-        collisions = find_output_collisions(
-            [
-                Path("models/model_bf16.safetensors"),
-                Path("models/model_int8_convrot.safetensors"),
-            ],
-            None,
-            False,
-        )
-        self.assertEqual(collisions, [Path("models/model_int8_convrot.safetensors")])
+            (root / "model_int8_convrot.safetensors").unlink()
+            (root / "model_int8_convrot.quality.tsv").write_text("existing", encoding="utf-8")
+            planned = plan_output_paths([source], None, True)
+            self.assertEqual(planned[source], root / "model_int8_convrot (1).safetensors")
 
-    def test_pytorch_checkpoint_requires_explicit_opt_in(self):
-        with self.assertRaises(PermissionError):
-            open_model("untrusted.ckpt")
+    def test_output_never_replaces_another_queued_source(self):
+        first = Path("models/model_bf16.safetensors")
+        second = Path("models/model_int8_convrot.safetensors")
+        planned = plan_output_paths([first, second], None, False)
+        self.assertEqual(planned[first], Path("models/model_int8_convrot (1).safetensors"))
+
+    def test_pytorch_checkpoint_opens_without_extra_flag(self):
+        with mock.patch("quant_int8_convrot._TorchReader") as reader:
+            open_model("model.ckpt")
+        reader.assert_called_once_with("model.ckpt")
 
     def test_path_identity_and_atomic_quality_report(self):
         with tempfile.TemporaryDirectory() as folder:

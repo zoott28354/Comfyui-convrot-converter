@@ -67,8 +67,8 @@ def print_source_storage(st, keys):
 def best_gs(k):
     return next((g for g in VALID_GS if k % g == 0), None)
 
-# safe_open-compatible reader for PyTorch checkpoints. weights_only=True narrows the attack surface,
-# but these formats must still be treated as untrusted input and explicitly opted into.
+# safe_open-compatible reader for PyTorch checkpoints; weights_only=True restricts loading to
+# weights-compatible objects, while the whole file is held in RAM because pickle has no lazy access.
 _DTYPE_CODE = {torch.float16: "F16", torch.bfloat16: "BF16", torch.float32: "F32",
                torch.float64: "F64", torch.int8: "I8", torch.uint8: "U8",
                getattr(torch, "float8_e4m3fn", None): "F8_E4M3",
@@ -105,18 +105,13 @@ class _TorchReader:
     def get_slice(self, k): return _TorchSlice(self._sd[k])
     def get_tensor(self, k): return self._sd[k]
 
-def open_model(path, *, allow_pytorch_checkpoint=False):
-    """Open Safetensors by default; PyTorch checkpoints require an explicit opt-in."""
+def open_model(path):
+    """Open Safetensors lazily or a supported PyTorch checkpoint with weights_only=True."""
     extension = os.path.splitext(path)[1].lower()
     if extension == ".safetensors":
         return safe_open(path, framework="pt", device="cpu")
     if extension not in TORCH_CHECKPOINT_EXTENSIONS:
         raise ValueError(f"unsupported model format: {extension or '(no extension)'}")
-    if not allow_pytorch_checkpoint:
-        raise PermissionError(
-            "refusing to open a PyTorch checkpoint without --allow-pytorch-checkpoint; "
-            "use this option only for files from a trusted source"
-        )
     return _TorchReader(path)
 
 
@@ -404,11 +399,6 @@ def main():
     ap.add_argument("--warn-thresh", type=float, default=2.0, help="warn on any quantized layer whose relerr%% exceeds this (default 2.0)")
     ap.add_argument("--verify-report", default=None, help="write the full per-layer (relerr, cos, gs) table to this path")
     ap.add_argument(
-        "--allow-pytorch-checkpoint",
-        action="store_true",
-        help="allow .pth/.pt/.ckpt/.bin input; use only for checkpoints from a trusted source",
-    )
-    ap.add_argument(
         "--preset",
         choices=("auto", "generic", "ltx2_official", "umt5_text", "gemma_text", "qwen_text"),
         default="auto",
@@ -433,7 +423,7 @@ def main():
     exc = re.compile(args.exclude) if args.exclude else None
     inc = re.compile(args.include) if args.include else None
 
-    with open_model(args.src, allow_pytorch_checkpoint=args.allow_pytorch_checkpoint) as st:
+    with open_model(args.src) as st:
         src_meta = st.metadata() or {}
         keys = list(st.keys())
         print_source_storage(st, keys)

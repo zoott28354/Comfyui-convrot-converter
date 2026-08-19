@@ -16,7 +16,7 @@ The setup ignores additional package indexes configured globally in `pip` and us
 
 ## Usage
 
-1. Drop one or more `.safetensors`, `.pth`, `.pt`, `.ckpt`, or `.bin` files anywhere in the application window. Safetensors is strongly recommended. PyTorch checkpoint formats require a security confirmation and should be opened only when their source is trusted.
+1. Drop one or more `.safetensors`, `.pth`, `.pt`, `.ckpt`, or `.bin` files anywhere in the application window.
 2. Leave the output folder blank to save next to each source, or choose a different destination.
 3. For an unfamiliar architecture, run **Analysis only** first. It reports which layers would be converted without writing an output file.
 4. Click **Start conversion**.
@@ -60,10 +60,7 @@ Output names follow the upstream converter: `model_bf16.safetensors` becomes `mo
 
 - ConvRot is applied only to automatically detected compatible layers. Some architectures or loaders that remap weight keys may not be suitable; use Analysis only first.
 - Models are processed sequentially to limit memory usage.
-- The application blocks duplicate queue destinations and asks for confirmation before replacing existing model or report files.
-- Model and quality-report outputs are written to temporary files and atomically moved into place only after a complete save. Replacing an existing model therefore requires enough free space for both the old and new files. If Windows terminates the process during the final save, a `.partial` file may remain and can be deleted.
-- Non-Safetensors input is disabled by default in the command-line converter. Use `--allow-pytorch-checkpoint` only for `.pth`, `.pt`, `.ckpt`, or `.bin` files from a trusted source; the GUI requests this consent interactively.
-- See [SECURITY.md](SECURITY.md) for the security model and vulnerability-reporting guidance.
+- Existing names are never overwritten by the GUI: it automatically creates `model (1).safetensors`, `model (2).safetensors`, and so on. Quality reports use the matching numbered name.
 
 ## License
 

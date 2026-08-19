@@ -24,12 +24,13 @@ except ImportError:  # allows helper functions to be imported before setup
 
 APP_DIR = Path(__file__).resolve().parent
 QUANTIZER = APP_DIR / "quant_int8_convrot.py"
-SUPPORTED_EXTENSIONS = {".safetensors", ".pth", ".pt", ".ckpt", ".bin"}
+TORCH_CHECKPOINT_EXTENSIONS = {".pth", ".pt", ".ckpt", ".bin"}
+SUPPORTED_EXTENSIONS = {".safetensors", *TORCH_CHECKPOINT_EXTENSIONS}
 
 TRANSLATIONS = {
     "it": {
         "language": "Lingua:",
-        "subtitle": "Quantizzazione INT8 + ConvRot per modelli ComfyUI, basata sullo script ufficiale Comfy-Org.",
+        "subtitle": "Quantizzazione INT8 + ConvRot per modelli ComfyUI, basata sul convertitore Comfy-Org.",
         "drop_default": "↓  TRASCINA QUI I MODELLI  ↓\n\n.safetensors  .pth  .pt  .ckpt  .bin",
         "drop_release": "RILASCIA PER AGGIUNGERE I MODELLI",
         "add_files": "Aggiungi file",
@@ -73,7 +74,11 @@ TRANSLATIONS = {
         "invalid_folder_title": "Cartella non valida",
         "invalid_folder_message": "La cartella di destinazione non esiste.",
         "existing_files_title": "File già esistenti",
-        "existing_files_message": "{count} file di destinazione esistono già e saranno sovrascritti. Continuare?",
+        "existing_files_message": "{count} file di output o report esistono già e saranno sostituiti in modo atomico. Continuare?",
+        "output_collision_title": "Destinazioni duplicate",
+        "output_collision_message": "Più modelli in coda produrrebbero lo stesso file:\n\n{paths}\n\nScegli un'altra cartella di output oppure rinomina i modelli.",
+        "torch_checkpoint_title": "Checkpoint PyTorch non attendibili",
+        "torch_checkpoint_message": "{count} file usano un formato PyTorch (.pth, .pt, .ckpt o .bin), che ha una superficie di attacco maggiore rispetto a Safetensors.\n\nContinua soltanto se i file provengono da una fonte attendibile. Aprirli comunque?",
         "active_conversion_title": "Conversione attiva",
         "active_conversion_message": "Interrompere la conversione e chiudere?",
         "missing_script_title": "Script mancante",
@@ -85,7 +90,7 @@ TRANSLATIONS = {
     },
     "en": {
         "language": "Language:",
-        "subtitle": "INT8 + ConvRot quantization for ComfyUI models, based on the official Comfy-Org script.",
+        "subtitle": "INT8 + ConvRot quantization for ComfyUI models, based on the Comfy-Org converter.",
         "drop_default": "↓  DROP MODELS HERE  ↓\n\n.safetensors  .pth  .pt  .ckpt  .bin",
         "drop_release": "RELEASE TO ADD MODELS",
         "add_files": "Add files",
@@ -129,7 +134,11 @@ TRANSLATIONS = {
         "invalid_folder_title": "Invalid folder",
         "invalid_folder_message": "The destination folder does not exist.",
         "existing_files_title": "Existing files",
-        "existing_files_message": "{count} destination file(s) already exist and will be overwritten. Continue?",
+        "existing_files_message": "{count} output or report file(s) already exist and will be replaced atomically. Continue?",
+        "output_collision_title": "Duplicate destinations",
+        "output_collision_message": "Multiple queued models would write to the same file:\n\n{paths}\n\nChoose another output folder or rename the models.",
+        "torch_checkpoint_title": "Untrusted PyTorch checkpoints",
+        "torch_checkpoint_message": "{count} file(s) use a PyTorch format (.pth, .pt, .ckpt, or .bin), which has a larger attack surface than Safetensors.\n\nContinue only if the files come from a trusted source. Open them anyway?",
         "active_conversion_title": "Conversion in progress",
         "active_conversion_message": "Stop the conversion and close the application?",
         "missing_script_title": "Missing script",
@@ -165,7 +174,7 @@ def enable_high_dpi_awareness() -> None:
 
 
 def output_name(source: Path) -> str:
-    """Apply the same output naming rule used by Comfy's official script."""
+    """Apply the same output naming rule used by the upstream converter."""
     converted = re.sub(r"(?i)(bf16|fp16|fp32)", "int8_convrot", source.stem)
     if converted == source.stem:
         converted += "_int8_convrot"
@@ -174,6 +183,36 @@ def output_name(source: Path) -> str:
 
 def output_path(source: Path, output_dir: Path | None) -> Path:
     return (output_dir or source.parent) / output_name(source)
+
+
+def is_torch_checkpoint(source: Path) -> bool:
+    return source.suffix.lower() in TORCH_CHECKPOINT_EXTENSIONS
+
+
+def output_artifacts(source: Path, output_dir: Path | None, write_report: bool) -> list[Path]:
+    destination = output_path(source, output_dir)
+    artifacts = [destination]
+    if write_report:
+        artifacts.append(destination.with_suffix(".quality.tsv"))
+    return artifacts
+
+
+def find_output_collisions(
+    sources: list[Path], output_dir: Path | None, write_report: bool
+) -> list[Path]:
+    source_keys = {
+        os.path.normcase(os.path.realpath(os.path.abspath(source))) for source in sources
+    }
+    seen: dict[str, Path] = {}
+    collisions: dict[str, Path] = {}
+    for source in sources:
+        for artifact in output_artifacts(source, output_dir, write_report):
+            key = os.path.normcase(os.path.realpath(os.path.abspath(artifact)))
+            if key in source_keys or key in seen:
+                collisions[key] = artifact
+            else:
+                seen[key] = artifact
+    return list(collisions.values())
 
 
 def build_command(
@@ -185,6 +224,7 @@ def build_command(
     mseclip: bool,
     downcast_fp32: bool,
     report_path: Path | None,
+    allow_pytorch_checkpoint: bool = False,
 ) -> list[str]:
     command = [sys.executable, "-u", str(QUANTIZER), str(source)]
     if not dry_run and destination is not None:
@@ -198,6 +238,8 @@ def build_command(
         command.append("--downcast-fp32")
     if report_path is not None and not dry_run:
         command.extend(["--verify-report", str(report_path)])
+    if allow_pytorch_checkpoint:
+        command.append("--allow-pytorch-checkpoint")
     return command
 
 
@@ -550,8 +592,32 @@ class ConvRotApp:
             messagebox.showerror(self._t("invalid_folder_title"), self._t("invalid_folder_message"))
             return
 
+        torch_checkpoints = [source for source in self.files if is_torch_checkpoint(source)]
+        if torch_checkpoints and not messagebox.askyesno(
+            self._t("torch_checkpoint_title"),
+            self._t("torch_checkpoint_message", count=len(torch_checkpoints)),
+            icon="warning",
+        ):
+            return
+
         if not self.dry_run.get():
-            existing = [output_path(source, out_dir) for source in self.files if output_path(source, out_dir).exists()]
+            collisions = find_output_collisions(self.files, out_dir, self.write_report.get())
+            if collisions:
+                paths = "\n".join(str(path) for path in collisions[:8])
+                if len(collisions) > 8:
+                    paths += f"\n… +{len(collisions) - 8}"
+                messagebox.showerror(
+                    self._t("output_collision_title"),
+                    self._t("output_collision_message", paths=paths),
+                )
+                return
+
+            artifacts = {
+                artifact
+                for source in self.files
+                for artifact in output_artifacts(source, out_dir, self.write_report.get())
+            }
+            existing = [artifact for artifact in artifacts if artifact.exists()]
             if existing and not messagebox.askyesno(
                 self._t("existing_files_title"),
                 self._t("existing_files_message", count=len(existing)),
@@ -579,7 +645,8 @@ class ConvRotApp:
             if write_report and destination is not None:
                 report = destination.with_suffix(".quality.tsv")
             command = build_command(source, destination, dry_run=dry_run, min_gemm=min_gemm,
-                                    mseclip=mseclip, downcast_fp32=downcast, report_path=report)
+                                    mseclip=mseclip, downcast_fp32=downcast, report_path=report,
+                                    allow_pytorch_checkpoint=is_torch_checkpoint(source))
             self.events.put(("state", (source, "state_running")))
             self.events.put(("status", f"{index}/{len(files)} — {source.name}"))
             self.events.put(("log", f"\n>>> {source}\n"))

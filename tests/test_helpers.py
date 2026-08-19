@@ -2,16 +2,74 @@
 # Copyright (C) 2026 zoott28354 and contributors
 
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from convrot_gui import TRANSLATIONS, build_command, output_name, output_path
+# The tested helpers do not execute tensor operations. Lightweight stubs keep this
+# suite runnable on CI and development machines without downloading CUDA PyTorch.
+try:
+    import torch  # noqa: F401
+except ImportError:
+    torch_stub = types.ModuleType("torch")
+
+    class Tensor:  # minimal isinstance target used by the checkpoint reader
+        pass
+
+    torch_stub.Tensor = Tensor
+    torch_stub.float16 = object()
+    torch_stub.bfloat16 = object()
+    torch_stub.float32 = object()
+    torch_stub.float64 = object()
+    torch_stub.int8 = object()
+    torch_stub.uint8 = object()
+    torch_stub.linspace = lambda *args, **kwargs: []
+    torch_stub.no_grad = lambda: (lambda function: function)
+    sys.modules["torch"] = torch_stub
+
+try:
+    import safetensors  # noqa: F401
+except ImportError:
+    safetensors_stub = types.ModuleType("safetensors")
+    safetensors_stub.safe_open = lambda *args, **kwargs: None
+    safetensors_torch_stub = types.ModuleType("safetensors.torch")
+    safetensors_torch_stub.save_file = lambda *args, **kwargs: None
+    sys.modules["safetensors"] = safetensors_stub
+    sys.modules["safetensors.torch"] = safetensors_torch_stub
+
+try:
+    import comfy_kitchen  # noqa: F401
+except ImportError:
+    comfy_stub = types.ModuleType("comfy_kitchen")
+    comfy_tensor_stub = types.ModuleType("comfy_kitchen.tensor")
+    comfy_int8_stub = types.ModuleType("comfy_kitchen.tensor.int8")
+    comfy_int8_stub._build_hadamard = lambda *args, **kwargs: None
+    comfy_int8_stub._rotate_weight = lambda *args, **kwargs: None
+    sys.modules["comfy_kitchen"] = comfy_stub
+    sys.modules["comfy_kitchen.tensor"] = comfy_tensor_stub
+    sys.modules["comfy_kitchen.tensor.int8"] = comfy_int8_stub
+
+from convrot_gui import (
+    TRANSLATIONS,
+    build_command,
+    find_output_collisions,
+    is_torch_checkpoint,
+    output_artifacts,
+    output_name,
+    output_path,
+)
 from quant_int8_convrot import (
+    atomic_save_model,
+    atomic_write_quality_report,
     classify_decoder_text,
     classify_umt5_text,
     detect_text_encoder_preset,
+    open_model,
+    paths_refer_to_same_file,
 )
 
 
@@ -48,6 +106,107 @@ class HelperTests(unittest.TestCase):
         self.assertIn("--mseclip", command)
         self.assertIn("--downcast-fp32", command)
         self.assertIn("--verify-report", command)
+
+    def test_build_command_explicitly_allows_trusted_pytorch_checkpoint(self):
+        command = build_command(
+            Path("model.ckpt"), Path("out.safetensors"), dry_run=False, min_gemm=256,
+            mseclip=False, downcast_fp32=False, report_path=None,
+            allow_pytorch_checkpoint=True,
+        )
+        self.assertIn("--allow-pytorch-checkpoint", command)
+
+    def test_recognizes_pytorch_checkpoint_extensions(self):
+        self.assertTrue(is_torch_checkpoint(Path("model.PT")))
+        self.assertFalse(is_torch_checkpoint(Path("model.safetensors")))
+
+    def test_output_artifacts_include_quality_report(self):
+        self.assertEqual(
+            output_artifacts(Path("model.safetensors"), Path("converted"), True),
+            [
+                Path("converted/model_int8_convrot.safetensors"),
+                Path("converted/model_int8_convrot.quality.tsv"),
+            ],
+        )
+
+    def test_duplicate_names_in_shared_output_folder_are_blocked(self):
+        collisions = find_output_collisions(
+            [Path("folder-a/model.safetensors"), Path("folder-b/model.safetensors")],
+            Path("converted"),
+            True,
+        )
+        self.assertEqual(
+            collisions,
+            [
+                Path("converted/model_int8_convrot.safetensors"),
+                Path("converted/model_int8_convrot.quality.tsv"),
+            ],
+        )
+
+    def test_same_names_next_to_sources_do_not_collide(self):
+        self.assertEqual(
+            find_output_collisions(
+                [Path("folder-a/model.safetensors"), Path("folder-b/model.safetensors")],
+                None,
+                True,
+            ),
+            [],
+        )
+
+    def test_output_cannot_replace_another_queued_source(self):
+        collisions = find_output_collisions(
+            [
+                Path("models/model_bf16.safetensors"),
+                Path("models/model_int8_convrot.safetensors"),
+            ],
+            None,
+            False,
+        )
+        self.assertEqual(collisions, [Path("models/model_int8_convrot.safetensors")])
+
+    def test_pytorch_checkpoint_requires_explicit_opt_in(self):
+        with self.assertRaises(PermissionError):
+            open_model("untrusted.ckpt")
+
+    def test_path_identity_and_atomic_quality_report(self):
+        with tempfile.TemporaryDirectory() as folder:
+            report = Path(folder) / "quality.tsv"
+            self.assertTrue(paths_refer_to_same_file(report, report.parent / "." / report.name))
+            atomic_write_quality_report(report, [(1.25, 0.999, 256, "layer\tname")])
+            self.assertEqual(
+                report.read_text(encoding="utf-8"),
+                "relerr_pct\tcosine\tgroupsize\tlayer\n1.2500\t0.999000\t256\tlayer\\tname\n",
+            )
+            self.assertEqual(list(Path(folder).glob("*.partial")), [])
+
+    def test_atomic_model_save_replaces_only_after_success(self):
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "model.safetensors"
+            destination.write_text("old", encoding="utf-8")
+
+            def successful_save(tensors, path, metadata):
+                Path(path).write_text("new", encoding="utf-8")
+
+            with mock.patch("quant_int8_convrot.save_file", side_effect=successful_save):
+                atomic_save_model({}, destination, {})
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), "new")
+            self.assertEqual(list(Path(folder).glob("*.partial")), [])
+
+    def test_atomic_model_save_preserves_existing_file_on_failure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            destination = Path(folder) / "model.safetensors"
+            destination.write_text("old", encoding="utf-8")
+
+            def failed_save(tensors, path, metadata):
+                Path(path).write_text("incomplete", encoding="utf-8")
+                raise OSError("simulated write failure")
+
+            with mock.patch("quant_int8_convrot.save_file", side_effect=failed_save):
+                with self.assertRaises(OSError):
+                    atomic_save_model({}, destination, {})
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), "old")
+            self.assertEqual(list(Path(folder).glob("*.partial")), [])
 
 
 class TextEncoderPresetTests(unittest.TestCase):

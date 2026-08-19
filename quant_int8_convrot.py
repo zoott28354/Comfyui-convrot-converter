@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Modifications Copyright (C) 2026 zoott28354 and contributors
-# Portions adapted from Comfy-Org/comfy-model-tools.
+# Modified from Comfy-Org/comfy-model-tools in 2026.
 
 """INT8 + ConvRot quantizer for comfy-kitchen — auto layer detection (no per-model recipe).
 
@@ -35,6 +35,7 @@ except ImportError:
 VALID_GS  = (256, 64, 16)                       # convrot Hadamard sizes; power-of-4, prefer largest
 CLIP_GRID = torch.linspace(0.55, 1.0, 80)
 FP8 = (getattr(torch, "float8_e4m3fn", None), getattr(torch, "float8_e5m2", None))
+TORCH_CHECKPOINT_EXTENSIONS = {".pth", ".pt", ".ckpt", ".bin"}
 
 _DTYPE_BYTES = {
     "F64": 8, "F32": 4, "F16": 2, "BF16": 2,
@@ -66,8 +67,8 @@ def print_source_storage(st, keys):
 def best_gs(k):
     return next((g for g in VALID_GS if k % g == 0), None)
 
-# safe_open-compatible reader for torch pickle checkpoints (weights_only=True -> safe load, no code
-# execution; whole file into RAM since pickle has no lazy access).
+# safe_open-compatible reader for PyTorch checkpoints. weights_only=True narrows the attack surface,
+# but these formats must still be treated as untrusted input and explicitly opted into.
 _DTYPE_CODE = {torch.float16: "F16", torch.bfloat16: "BF16", torch.float32: "F32",
                torch.float64: "F64", torch.int8: "I8", torch.uint8: "U8",
                getattr(torch, "float8_e4m3fn", None): "F8_E4M3",
@@ -104,11 +105,64 @@ class _TorchReader:
     def get_slice(self, k): return _TorchSlice(self._sd[k])
     def get_tensor(self, k): return self._sd[k]
 
-def open_model(path):
-    """safe_open for .safetensors; safe (weights_only) torch.load for .pth/.pt/.ckpt/.bin."""
-    if path.lower().endswith(".safetensors"):
+def open_model(path, *, allow_pytorch_checkpoint=False):
+    """Open Safetensors by default; PyTorch checkpoints require an explicit opt-in."""
+    extension = os.path.splitext(path)[1].lower()
+    if extension == ".safetensors":
         return safe_open(path, framework="pt", device="cpu")
+    if extension not in TORCH_CHECKPOINT_EXTENSIONS:
+        raise ValueError(f"unsupported model format: {extension or '(no extension)'}")
+    if not allow_pytorch_checkpoint:
+        raise PermissionError(
+            "refusing to open a PyTorch checkpoint without --allow-pytorch-checkpoint; "
+            "use this option only for files from a trusted source"
+        )
     return _TorchReader(path)
+
+
+def paths_refer_to_same_file(left, right):
+    """Compare existing files by identity and non-existing paths by normalized real path."""
+    try:
+        if os.path.exists(left) and os.path.exists(right):
+            return os.path.samefile(left, right)
+    except OSError:
+        pass
+    normalize = lambda value: os.path.normcase(os.path.realpath(os.path.abspath(value)))
+    return normalize(left) == normalize(right)
+
+
+def atomic_save_model(tensors, destination, metadata):
+    """Write beside the destination and replace it only after a complete Safetensors save."""
+    destination = os.path.abspath(destination)
+    partial = f"{destination}.{os.getpid()}.partial"
+    try:
+        save_file(tensors, partial, metadata=metadata)
+        os.replace(partial, destination)
+    finally:
+        if os.path.exists(partial):
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
+
+
+def atomic_write_quality_report(path, errors):
+    """Write the TSV report atomically so an existing report survives interruption."""
+    path = os.path.abspath(path)
+    partial = f"{path}.{os.getpid()}.partial"
+    try:
+        with open(partial, "w", encoding="utf-8", newline="") as report:
+            report.write("relerr_pct\tcosine\tgroupsize\tlayer\n")
+            for relerr, cosine, groupsize, layer in errors:
+                safe_layer = layer.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
+                report.write(f"{relerr:.4f}\t{cosine:.6f}\t{groupsize}\t{safe_layer}\n")
+        os.replace(partial, path)
+    finally:
+        if os.path.exists(partial):
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
 
 # Detection = quantize every eligible 2-D block linear, minus a name denylist. No projection-name
 # allowlist (fragile: every arch invents new names like to_qkv/add_q_proj/single_blocks.linear1).
@@ -350,6 +404,11 @@ def main():
     ap.add_argument("--warn-thresh", type=float, default=2.0, help="warn on any quantized layer whose relerr%% exceeds this (default 2.0)")
     ap.add_argument("--verify-report", default=None, help="write the full per-layer (relerr, cos, gs) table to this path")
     ap.add_argument(
+        "--allow-pytorch-checkpoint",
+        action="store_true",
+        help="allow .pth/.pt/.ckpt/.bin input; use only for checkpoints from a trusted source",
+    )
+    ap.add_argument(
         "--preset",
         choices=("auto", "generic", "ltx2_official", "umt5_text", "gemma_text", "qwen_text"),
         default="auto",
@@ -364,10 +423,17 @@ def main():
             new = base + "_int8_convrot"
         args.dst = os.path.join(os.path.dirname(args.src), new + ".safetensors")
         print(f"auto dst -> {args.dst}")
+    if args.dst and paths_refer_to_same_file(args.src, args.dst):
+        raise ValueError("source and destination must be different files")
+    if args.verify_report:
+        if paths_refer_to_same_file(args.src, args.verify_report):
+            raise ValueError("quality report path must not replace the source model")
+        if args.dst and paths_refer_to_same_file(args.dst, args.verify_report):
+            raise ValueError("quality report path must not replace the destination model")
     exc = re.compile(args.exclude) if args.exclude else None
     inc = re.compile(args.include) if args.include else None
 
-    with open_model(args.src) as st:               # .safetensors (lazy) or .pth/.pt/.ckpt (safe load)
+    with open_model(args.src, allow_pytorch_checkpoint=args.allow_pytorch_checkpoint) as st:
         src_meta = st.metadata() or {}
         keys = list(st.keys())
         print_source_storage(st, keys)
@@ -519,7 +585,7 @@ def main():
                 else:
                     out[key] = t
             torch.cuda.empty_cache()
-        save_file(out, args.dst, metadata=dict(src_meta))
+        atomic_save_model(out, args.dst, metadata=dict(src_meta))
         print(f"DONE: quantized {nq} layers, {len(out)} tensors, {time.time()-t0:.1f}s -> {args.dst}")
 
         # ---- per-layer error report ----
@@ -541,10 +607,7 @@ def main():
             if over:
                 print(f"  !! {len(over)} layer(s) over --warn-thresh ({args.warn_thresh}%) — review above")
         if args.verify_report and errs:
-            with open(args.verify_report, "w") as f:
-                f.write("relerr_pct\tcosine\tgroupsize\tlayer\n")
-                for r, c, gs, b in errs:
-                    f.write(f"{r:.4f}\t{c:.6f}\t{gs}\t{b}\n")
+            atomic_write_quality_report(args.verify_report, errs)
             print(f"  full per-layer table -> {args.verify_report}")
 
 if __name__ == "__main__":

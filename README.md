@@ -1,6 +1,6 @@
 # ComfyUI ConvRot Converter for Windows
 
-A drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**, available in English and Italian. The conversion is performed by Comfy-Org's official [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py) script, with protected presets for selected model families.
+A drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**, available in English and Italian. The converter is based on Comfy-Org's [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py), with additional interface, safety checks, and protected presets for selected model families. This project is independent and is not an official Comfy-Org release.
 
 This application was created for users who keep many models spread across numerous folders. In that situation, repeatedly entering long command-line paths and options quickly becomes inconvenient. With a drag-and-drop queue, models can be collected from different locations, analyzed, and converted through one simple interface.
 
@@ -12,11 +12,11 @@ This application was created for users who keep many models spread across numero
 
 The first setup downloads PyTorch and may require several gigabytes. Conversion requires a CUDA-compatible NVIDIA GPU and enough VRAM. The source model is never modified.
 
-The setup ignores additional package indexes configured globally in `pip` and uses only PyPI and the official PyTorch CUDA index. This prevents unreachable corporate or NVIDIA mirrors from blocking installation.
+The setup ignores additional package indexes configured globally in `pip` and uses only PyPI and the official PyTorch CUDA index. Application dependencies are pinned to tested versions and their Windows wheel hashes are verified through `requirements.lock`. PyTorch is installed at the tested CUDA 12.8 version declared in `setup.bat`.
 
 ## Usage
 
-1. Drop one or more `.safetensors`, `.pth`, `.pt`, `.ckpt`, or `.bin` files anywhere in the application window.
+1. Drop one or more `.safetensors`, `.pth`, `.pt`, `.ckpt`, or `.bin` files anywhere in the application window. Safetensors is strongly recommended. PyTorch checkpoint formats require a security confirmation and should be opened only when their source is trusted.
 2. Leave the output folder blank to save next to each source, or choose a different destination.
 3. For an unfamiliar architecture, run **Analysis only** first. It reports which layers would be converted without writing an output file.
 4. Click **Start conversion**.
@@ -47,7 +47,7 @@ Drag-and-drop works across the entire window, including the queue table and log 
 
 The interface enables per-monitor Windows DPI awareness and scales its initial size and table columns automatically, including 4K displays at 150–200% desktop scaling.
 
-Output names follow the official script: `model_bf16.safetensors` becomes `model_int8_convrot.safetensors`. If the original name does not contain `bf16`, `fp16`, or `fp32`, `_int8_convrot` is appended.
+Output names follow the upstream converter: `model_bf16.safetensors` becomes `model_int8_convrot.safetensors`. If the original name does not contain `bf16`, `fp16`, or `fp32`, `_int8_convrot` is appended.
 
 ## Options
 
@@ -60,7 +60,10 @@ Output names follow the official script: `model_bf16.safetensors` becomes `model
 
 - ConvRot is applied only to automatically detected compatible layers. Some architectures or loaders that remap weight keys may not be suitable; use Analysis only first.
 - Models are processed sequentially to limit memory usage.
-- The application asks for confirmation before overwriting an existing destination file.
+- The application blocks duplicate queue destinations and asks for confirmation before replacing existing model or report files.
+- Model and quality-report outputs are written to temporary files and atomically moved into place only after a complete save. Replacing an existing model therefore requires enough free space for both the old and new files. If Windows terminates the process during the final save, a `.partial` file may remain and can be deleted.
+- Non-Safetensors input is disabled by default in the command-line converter. Use `--allow-pytorch-checkpoint` only for `.pth`, `.pt`, `.ckpt`, or `.bin` files from a trusted source; the GUI requests this consent interactively.
+- See [SECURITY.md](SECURITY.md) for the security model and vulnerability-reporting guidance.
 
 ## License
 

@@ -1,0 +1,16 @@
+# Windows x86-64 lock for standard CPython 3.12 and 3.13.
+# Generated from the wheel hashes published by PyPI.
+--only-binary=:all:
+
+tkinterdnd2==0.6.2 \
+    --hash=sha256:b6a8b229d26286c022bb2fbd311c2e431e4d9bbab8133be80e9c98e7bcf9fe59
+safetensors==0.8.0 \
+    --hash=sha256:096ec1a98435df7beb08853bb5aa9081a84f23d0adc67ed1a0a10550f608373f
+comfy-kitchen==0.2.31 \
+    --hash=sha256:33a32cdf1536d8d6bd87d18c3852983f350027e3c7ff04f545022d58692050ec \
+    --hash=sha256:5117946c30f308cfc73b9c26f723ae3918308bd090e57a8eae298406934aabd6
+numpy==2.5.2 \
+    --hash=sha256:28ac63476ec7651484215ee7fa15a1f78b57c14621f01e392afe17b9a1390ce4 \
+    --hash=sha256:85aaccb24182c25df891ad0ec333585967e115269d5f1b17f2c9ae005bc96657
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c

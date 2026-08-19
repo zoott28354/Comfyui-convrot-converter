@@ -87,15 +87,15 @@ if errorlevel 1 goto :error
 
 :install
 echo Updating pip...
-".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple --upgrade pip
+".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple --only-binary=:all: pip==26.2.1
 if errorlevel 1 goto :error
 
 echo Installing PyTorch with CUDA 12.8 support...
-".venv\Scripts\python.exe" -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+".venv\Scripts\python.exe" -m pip install --only-binary=:all: torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
 if errorlevel 1 goto :error
 
-echo Installing interface and ConvRot dependencies...
-".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple -r requirements.txt
+echo Installing verified interface and ConvRot dependencies...
+".venv\Scripts\python.exe" -m pip install --index-url https://pypi.org/simple --require-hashes -r requirements.lock
 if errorlevel 1 goto :error
 
 call :write_launcher

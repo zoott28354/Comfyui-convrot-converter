@@ -1,5 +1,7 @@
-tkinterdnd2>=0.4.3,<1
-safetensors>=0.5,<1
-comfy-kitchen>=0.2.15,<1
-numpy>=2.0,<3
-packaging>=24,<27
+# Human-readable dependency pins. setup.bat installs requirements.lock,
+# which also verifies the hashes of the supported Windows wheels.
+tkinterdnd2==0.6.2
+safetensors==0.8.0
+comfy-kitchen==0.2.31
+numpy==2.5.2
+packaging==26.3

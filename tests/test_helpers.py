@@ -78,7 +78,9 @@ class HelperTests(unittest.TestCase):
         setup = (PROJECT_ROOT / "setup.bat").read_text(encoding="utf-8")
         self.assertNotIn("Select the Python installation", setup)
         self.assertNotIn("Choice [1-5]", setup)
+        self.assertNotIn("^<=", setup)
         self.assertIn("for %%V in (3.14 3.13 3.12)", setup)
+        self.assertIn("(3,12) <= sys.version_info[:2] <= (3,14)", setup)
         self.assertIn("Compatible Python was not found.", setup)
 
     def test_translations_have_identical_keys(self):

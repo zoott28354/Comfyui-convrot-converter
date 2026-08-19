@@ -13,7 +13,7 @@ set "PIP_TRUSTED_HOST="
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 
 if exist ".venv" (
-    ".venv\Scripts\python.exe" -c "import struct,sys,sysconfig; ok=(3,12) ^<= sys.version_info[:2] ^<= (3,14) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
+    ".venv\Scripts\python.exe" -c "import struct,sys,sysconfig; ok=(3,12) <= sys.version_info[:2] <= (3,14) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
     if not errorlevel 1 goto :install
 
     echo The existing .venv is incomplete, incompatible, or points to a Python installation that no longer exists.
@@ -86,7 +86,7 @@ exit /b 1
 
 :validate_python
 if not defined PYTHON_EXE exit /b 1
-"%PYTHON_EXE%" %PYTHON_ARGS% -c "import struct,sys,sysconfig; ok=(3,12) ^<= sys.version_info[:2] ^<= (3,14) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
+"%PYTHON_EXE%" %PYTHON_ARGS% -c "import struct,sys,sysconfig; ok=(3,12) <= sys.version_info[:2] <= (3,14) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
 exit /b %errorlevel%
 
 :show_selected_python

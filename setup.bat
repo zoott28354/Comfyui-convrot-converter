@@ -30,6 +30,7 @@ if exist ".venv" (
 call :find_system_python
 if not defined PYTHON_EXE goto :python_required
 call :show_selected_python
+if errorlevel 1 goto :python_required
 
 :create_venv
 echo Creating virtual environment...
@@ -90,11 +91,9 @@ if not defined PYTHON_EXE exit /b 1
 exit /b %errorlevel%
 
 :show_selected_python
-for /f "delims=" %%V in ('"%PYTHON_EXE%" %PYTHON_ARGS% -c "import platform; print(platform.python_version())"') do set "PYTHON_VERSION=%%V"
-for /f "delims=" %%X in ('"%PYTHON_EXE%" %PYTHON_ARGS% -c "import sys; print(sys.executable)"') do set "PYTHON_PATH=%%X"
-echo Detected Python %PYTHON_VERSION%
-echo   %PYTHON_PATH%
-exit /b 0
+echo Detected compatible Python:
+"%PYTHON_EXE%" %PYTHON_ARGS% -c "import sys; print('  Version:', sys.version.split()[0]); print('  Path:', sys.executable)"
+exit /b %errorlevel%
 
 :python_required
 echo.

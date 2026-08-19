@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 zoott28354 and contributors
+
 from __future__ import annotations
 
 import os

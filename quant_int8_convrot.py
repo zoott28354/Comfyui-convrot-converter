@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Modifications Copyright (C) 2026 zoott28354 and contributors
+# Portions adapted from Comfy-Org/comfy-model-tools.
+
 """INT8 + ConvRot quantizer for comfy-kitchen — auto layer detection (no per-model recipe).
 
 Quantizes the per-token block linears (attention + FFN), passes everything else through.

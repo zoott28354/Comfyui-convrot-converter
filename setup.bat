@@ -1,4 +1,7 @@
 @echo off
+rem SPDX-License-Identifier: GPL-3.0-only
+rem Copyright (C) 2026 zoott28354 and contributors
+
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 

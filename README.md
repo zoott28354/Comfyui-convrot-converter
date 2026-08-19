@@ -62,4 +62,8 @@ Output names follow the official script: `model_bf16.safetensors` becomes `model
 - Models are processed sequentially to limit memory usage.
 - The application asks for confirmation before overwriting an existing destination file.
 
-The included Comfy-Org script is distributed under GPL-3.0. A copy of its license is provided in `LICENSE-COMFY-MODEL-TOOLS`.
+## License
+
+ComfyUI ConvRot Converter is free software licensed under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`). You may use, study, modify, and redistribute it under the terms of that license.
+
+The converter includes and modifies code from Comfy-Org's [`comfy-model-tools`](https://github.com/Comfy-Org/comfy-model-tools), also distributed under GPL-3.0. Copyright remains with the respective authors and contributors.

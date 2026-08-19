@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # The tested helpers do not execute tensor operations. Lightweight stubs keep this
 # suite runnable on CI and development machines without downloading CUDA PyTorch.
@@ -73,6 +74,13 @@ from quant_int8_convrot import (
 
 
 class HelperTests(unittest.TestCase):
+    def test_setup_auto_detects_python_without_selection_menu(self):
+        setup = (PROJECT_ROOT / "setup.bat").read_text(encoding="utf-8")
+        self.assertNotIn("Select the Python installation", setup)
+        self.assertNotIn("Choice [1-5]", setup)
+        self.assertIn("for %%V in (3.14 3.13 3.12)", setup)
+        self.assertIn("Compatible Python was not found.", setup)
+
     def test_translations_have_identical_keys(self):
         self.assertEqual(set(TRANSLATIONS["it"]), set(TRANSLATIONS["en"]))
         self.assertEqual(TRANSLATIONS["en"]["start"], "Start conversion")

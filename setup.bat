@@ -13,10 +13,10 @@ set "PIP_TRUSTED_HOST="
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 
 if exist ".venv" (
-    ".venv\Scripts\python.exe" -c "import sys" >nul 2>nul
+    ".venv\Scripts\python.exe" -c "import struct,sys,sysconfig; ok=(3,12) ^<= sys.version_info[:2] ^<= (3,14) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
     if not errorlevel 1 goto :install
 
-    echo The existing .venv is incomplete or points to a Python installation that no longer exists.
+    echo The existing .venv is incomplete, incompatible, or points to a Python installation that no longer exists.
     choice /C RC /N /M "Press R to recreate it or C to cancel: "
     if errorlevel 2 exit /b 1
     rmdir /s /q ".venv"
@@ -28,56 +28,7 @@ if exist ".venv" (
 )
 
 call :find_system_python
-if defined PYTHON_EXE (
-    call :show_selected_python
-    choice /C YN /N /M "Use this Python installation? [Y/N]: "
-    if not errorlevel 2 goto :create_venv
-)
-
-:choose_python
-echo.
-echo Select the Python installation to use:
-echo   1. System default Python
-echo   2. Python 3.13 through Python Launcher
-echo   3. Python 3.12 through Python Launcher
-echo   4. Custom python.exe path
-echo   5. Cancel
-set "PYTHON_CHOICE="
-set /p "PYTHON_CHOICE=Choice [1-5]: "
-
-if "%PYTHON_CHOICE%"=="1" (
-    call :find_system_python
-    goto :validate_choice
-)
-if "%PYTHON_CHOICE%"=="2" (
-    set "PYTHON_EXE=py"
-    set "PYTHON_ARGS=-3.13"
-    goto :validate_choice
-)
-if "%PYTHON_CHOICE%"=="3" (
-    set "PYTHON_EXE=py"
-    set "PYTHON_ARGS=-3.12"
-    goto :validate_choice
-)
-if "%PYTHON_CHOICE%"=="4" (
-    set "CUSTOM_PYTHON="
-    set /p "CUSTOM_PYTHON=Full path to python.exe: "
-    set "PYTHON_EXE=!CUSTOM_PYTHON:"=!"
-    set "PYTHON_ARGS="
-    goto :validate_choice
-)
-if "%PYTHON_CHOICE%"=="5" exit /b 1
-echo Invalid choice.
-goto :choose_python
-
-:validate_choice
-call :validate_python
-if errorlevel 1 (
-    echo.
-    echo That interpreter is unavailable or unsupported.
-    echo Use standard 64-bit CPython 3.12 or 3.13, not a free-threaded build.
-    goto :choose_python
-)
+if not defined PYTHON_EXE goto :python_required
 call :show_selected_python
 
 :create_venv
@@ -111,19 +62,23 @@ set "PYTHON_EXE="
 set "PYTHON_ARGS="
 where py >nul 2>nul
 if not errorlevel 1 (
-    set "PYTHON_EXE=py"
-    set "PYTHON_ARGS=-3"
-    call :validate_python
-    if not errorlevel 1 exit /b 0
+    for %%V in (3.14 3.13 3.12) do (
+        set "PYTHON_EXE=py"
+        set "PYTHON_ARGS=-%%V"
+        call :validate_python
+        if not errorlevel 1 exit /b 0
+    )
 )
 set "PYTHON_EXE="
 set "PYTHON_ARGS="
 where python >nul 2>nul
 if not errorlevel 1 (
-    for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
-    set "PYTHON_ARGS="
-    call :validate_python
-    if not errorlevel 1 exit /b 0
+    for /f "delims=" %%P in ('where python 2^>nul') do (
+        set "PYTHON_EXE=%%P"
+        set "PYTHON_ARGS="
+        call :validate_python
+        if not errorlevel 1 exit /b 0
+    )
 )
 set "PYTHON_EXE="
 set "PYTHON_ARGS="
@@ -131,7 +86,7 @@ exit /b 1
 
 :validate_python
 if not defined PYTHON_EXE exit /b 1
-"%PYTHON_EXE%" %PYTHON_ARGS% -c "import struct,sys,sysconfig; ok=(3,12) ^<= sys.version_info[:2] ^<= (3,13) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
+"%PYTHON_EXE%" %PYTHON_ARGS% -c "import struct,sys,sysconfig; ok=(3,12) ^<= sys.version_info[:2] ^<= (3,14) and struct.calcsize('P')==8 and not sysconfig.get_config_var('Py_GIL_DISABLED'); raise SystemExit(0 if ok else 1)" >nul 2>nul
 exit /b %errorlevel%
 
 :show_selected_python
@@ -140,6 +95,14 @@ for /f "delims=" %%X in ('"%PYTHON_EXE%" %PYTHON_ARGS% -c "import sys; print(sys
 echo Detected Python %PYTHON_VERSION%
 echo   %PYTHON_PATH%
 exit /b 0
+
+:python_required
+echo.
+echo Compatible Python was not found.
+echo Install standard 64-bit Python 3.12, 3.13, or 3.14, then run setup.bat again:
+echo https://www.python.org/downloads/windows/
+pause
+exit /b 1
 
 :write_launcher
 echo Creating start.bat...

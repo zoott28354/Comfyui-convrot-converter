@@ -57,6 +57,7 @@ except ImportError:
 from convrot_gui import (
     TRANSLATIONS,
     build_command,
+    delete_original_after_conversion,
     numbered_output_path,
     output_name,
     output_path,
@@ -86,6 +87,16 @@ class HelperTests(unittest.TestCase):
         self.assertIn("Detected compatible Python:", setup)
         self.assertIn("Compatible Python was not found.", setup)
 
+    def test_interface_uses_pyside6_without_tkinterdnd(self):
+        gui = (PROJECT_ROOT / "convrot_gui.py").read_text(encoding="utf-8")
+        requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        lock = (PROJECT_ROOT / "requirements.lock").read_text(encoding="utf-8")
+        self.assertIn("from PySide6.QtWidgets import", gui)
+        self.assertNotIn("tkinterdnd2", gui.lower())
+        self.assertIn("PySide6_Essentials==6.11.2", requirements)
+        self.assertIn("PySide6_Essentials==6.11.2", lock)
+        self.assertIn("shiboken6==6.11.2", lock)
+
     def test_translations_have_identical_keys(self):
         self.assertEqual(set(TRANSLATIONS["it"]), set(TRANSLATIONS["en"]))
         self.assertEqual(TRANSLATIONS["en"]["start"], "Start conversion")
@@ -95,6 +106,12 @@ class HelperTests(unittest.TestCase):
 
     def test_output_name_appends_suffix(self):
         self.assertEqual(output_name(Path("wan.safetensors")), "wan_int8_convrot.safetensors")
+
+    def test_output_name_marks_mseclip_conversion(self):
+        self.assertEqual(
+            output_name(Path("wan_bf16.safetensors"), mseclip=True),
+            "wan_int8_convrot_mseclip.safetensors",
+        )
 
     def test_output_path_uses_selected_directory(self):
         self.assertEqual(
@@ -148,6 +165,37 @@ class HelperTests(unittest.TestCase):
             (root / "model_int8_convrot.quality.tsv").write_text("existing", encoding="utf-8")
             planned = plan_output_paths([source], None, True)
             self.assertEqual(planned[source], root / "model_int8_convrot (1).safetensors")
+
+    def test_mseclip_report_uses_matching_marked_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "model_bf16.safetensors"
+            planned = plan_output_paths([source], None, True, mseclip=True)
+            destination = planned[source]
+            self.assertEqual(destination.name, "model_int8_convrot_mseclip.safetensors")
+            self.assertEqual(destination.with_suffix(".quality.tsv").name,
+                             "model_int8_convrot_mseclip.quality.tsv")
+
+    def test_delete_original_requires_valid_distinct_output(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "source.safetensors"
+            destination = root / "converted.safetensors"
+            source.write_bytes(b"source")
+            destination.write_bytes(b"converted")
+            delete_original_after_conversion(source, destination)
+            self.assertFalse(source.exists())
+            self.assertEqual(destination.read_bytes(), b"converted")
+
+    def test_delete_original_preserves_source_if_output_is_empty(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "source.safetensors"
+            destination = root / "converted.safetensors"
+            source.write_bytes(b"source")
+            destination.write_bytes(b"")
+            with self.assertRaises(ValueError):
+                delete_original_after_conversion(source, destination)
+            self.assertTrue(source.exists())
 
     def test_output_never_replaces_another_queued_source(self):
         first = Path("models/model_bf16.safetensors")

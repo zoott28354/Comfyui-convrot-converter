@@ -1,13 +1,13 @@
 # ComfyUI ConvRot Converter for Windows
 
-A drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**, available in English and Italian. The converter is based on Comfy-Org's [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py), with additional interface, safety checks, and protected presets for selected model families. This project is independent and is not an official Comfy-Org release.
+A modern PySide6 drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**, available in English and Italian. The converter is based on Comfy-Org's [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py), with additional interface, safety checks, and protected presets for selected model families. This project is independent and is not an official Comfy-Org release.
 
 This application was created for users who keep many models spread across numerous folders. In that situation, repeatedly entering long command-line paths and options quickly becomes inconvenient. With a drag-and-drop queue, models can be collected from different locations, analyzed, and converted through one simple interface.
 
 ## Installation
 
 1. Install standard 64-bit [Python 3.12, 3.13, or 3.14](https://www.python.org/downloads/windows/). Python 3.12 is the minimum required version.
-2. Double-click `setup.bat`. It automatically detects a compatible system Python, creates a local `.venv`, and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and drag-and-drop support. If Python is missing, the setup simply tells you where to install it.
+2. Double-click `setup.bat`. It automatically detects a compatible system Python, creates a local `.venv`, and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and the PySide6 interface. If Python is missing, the setup simply tells you where to install it.
 3. After a successful installation, the setup creates `start.bat`. Use that generated launcher for subsequent starts.
 
 The first setup downloads PyTorch and may require several gigabytes. Conversion requires a CUDA-compatible NVIDIA GPU and enough VRAM. The source model is never modified.
@@ -45,9 +45,11 @@ From the command line, selection can be controlled with `--preset auto`, `--pres
 
 Drag-and-drop works across the entire window, including the queue table and log panel. On Windows, do not run `start.bat` as administrator: Windows blocks dragging from a non-elevated File Explorer process into an elevated application.
 
-The interface enables per-monitor Windows DPI awareness and scales its initial size and table columns automatically, including 4K displays at 150–200% desktop scaling.
+The PySide6 interface uses native drag-and-drop, responsive layouts, and per-monitor Windows DPI scaling, including 4K displays at 150–200% desktop scaling.
 
 Output names follow the upstream converter: `model_bf16.safetensors` becomes `model_int8_convrot.safetensors`. If the original name does not contain `bf16`, `fp16`, or `fp32`, `_int8_convrot` is appended.
+
+When **MSE clip** is enabled, `_mseclip` is added to both the converted model and its quality report, for example `model_int8_convrot_mseclip.safetensors` and `model_int8_convrot_mseclip.quality.tsv`.
 
 ## Options
 
@@ -55,12 +57,14 @@ Output names follow the upstream converter: `model_bf16.safetensors` becomes `mo
 - **MSE clip:** experimental mode that can reduce weight reconstruction error; always validate the result.
 - **Downcast remaining FP32:** converts selected non-quantized FP32 layers to the compute dtype to reduce output size.
 - **Quality report:** writes a `.quality.tsv` file containing relative error, cosine similarity, and group size for every quantized layer.
+- **Delete original:** permanently deletes each source model only after its conversion succeeds and the new output has been verified to exist and contain data. This option is unavailable in Analysis only mode.
 
 ## Important notes
 
 - ConvRot is applied only to automatically detected compatible layers. Some architectures or loaders that remap weight keys may not be suitable; use Analysis only first.
 - Models are processed sequentially to limit memory usage.
 - Existing names are never overwritten by the GUI: it automatically creates `model (1).safetensors`, `model (2).safetensors`, and so on. Quality reports use the matching numbered name.
+- Original deletion is opt-in and permanent. A failed conversion, missing output, empty output, or cancelled queue always preserves the corresponding source model.
 
 ## License
 

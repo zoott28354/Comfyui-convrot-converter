@@ -1,6 +1,6 @@
 # Human-readable dependency pins. setup.bat installs requirements.lock,
 # which also verifies the hashes of the supported Windows wheels.
-tkinterdnd2==0.6.2
+PySide6_Essentials==6.11.2
 safetensors==0.8.0
 comfy-kitchen==0.2.31
 numpy==2.5.2

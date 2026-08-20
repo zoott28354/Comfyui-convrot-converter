@@ -11,15 +11,36 @@ import sys
 import threading
 import ctypes
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 
 try:
-    from tkinterdnd2 import COPY, DND_FILES, TkinterDnD
-except ImportError:  # allows helper functions to be imported before setup
-    COPY = "copy"
-    DND_FILES = None
-    TkinterDnD = None
+    from PySide6.QtCore import QEvent, Qt, QTimer
+    from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDragLeaveEvent, QDropEvent
+    from PySide6.QtWidgets import (
+        QApplication,
+        QCheckBox,
+        QComboBox,
+        QFileDialog,
+        QFrame,
+        QGridLayout,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QPlainTextEdit,
+        QPushButton,
+        QSizePolicy,
+        QSpinBox,
+        QSplitter,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
+except ImportError:  # helper functions remain importable before setup
+    QApplication = None  # type: ignore[assignment]
+    QMainWindow = object  # type: ignore[assignment,misc]
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -44,6 +65,7 @@ TRANSLATIONS = {
         "mse_clip": "MSE clip (sperimentale)",
         "downcast": "Riduci FP32 residui",
         "quality_report": "Salva report qualità .tsv",
+        "delete_original": "Elimina definitivamente l'originale dopo la conversione riuscita",
         "min_gemm": "Min GEMM:",
         "cancel": "Annulla",
         "start": "Avvia conversione",
@@ -78,6 +100,8 @@ TRANSLATIONS = {
         "missing_script_message": "File non trovato:\n{path}",
         "log_queue_start": "Avvio coda ConvRot",
         "log_launch_error": "ERRORE avvio: {error}\n",
+        "log_deleted_original": "Originale eliminato: {path}\n",
+        "log_delete_error": "ATTENZIONE: impossibile eliminare l'originale {path}: {error}\n",
         "log_cancelled": "\nCoda annullata.\n",
         "log_done": "\nOperazione conclusa: {successes}/{total}.\n",
     },
@@ -98,6 +122,7 @@ TRANSLATIONS = {
         "mse_clip": "MSE clip (experimental)",
         "downcast": "Downcast remaining FP32",
         "quality_report": "Save .tsv quality report",
+        "delete_original": "Permanently delete original after successful conversion",
         "min_gemm": "Min GEMM:",
         "cancel": "Cancel",
         "start": "Start conversion",
@@ -132,6 +157,8 @@ TRANSLATIONS = {
         "missing_script_message": "File not found:\n{path}",
         "log_queue_start": "Starting ConvRot queue",
         "log_launch_error": "LAUNCH ERROR: {error}\n",
+        "log_deleted_original": "Deleted original: {path}\n",
+        "log_delete_error": "WARNING: unable to delete original {path}: {error}\n",
         "log_cancelled": "\nQueue cancelled.\n",
         "log_done": "\nOperation complete: {successes}/{total}.\n",
     },
@@ -160,16 +187,18 @@ def enable_high_dpi_awareness() -> None:
         pass
 
 
-def output_name(source: Path) -> str:
+def output_name(source: Path, mseclip: bool = False) -> str:
     """Apply the same output naming rule used by the upstream converter."""
     converted = re.sub(r"(?i)(bf16|fp16|fp32)", "int8_convrot", source.stem)
     if converted == source.stem:
         converted += "_int8_convrot"
+    if mseclip:
+        converted += "_mseclip"
     return converted + ".safetensors"
 
 
-def output_path(source: Path, output_dir: Path | None) -> Path:
-    return (output_dir or source.parent) / output_name(source)
+def output_path(source: Path, output_dir: Path | None, mseclip: bool = False) -> Path:
+    return (output_dir or source.parent) / output_name(source, mseclip)
 
 
 def numbered_output_path(base: Path, number: int) -> Path:
@@ -179,13 +208,13 @@ def numbered_output_path(base: Path, number: int) -> Path:
 
 
 def plan_output_paths(
-    sources: list[Path], output_dir: Path | None, write_report: bool
+    sources: list[Path], output_dir: Path | None, write_report: bool, mseclip: bool = False
 ) -> dict[Path, Path]:
     normalize = lambda path: os.path.normcase(os.path.realpath(os.path.abspath(path)))
     reserved = {normalize(source) for source in sources}
     planned: dict[Path, Path] = {}
     for source in sources:
-        base = output_path(source, output_dir)
+        base = output_path(source, output_dir, mseclip)
         number = 0
         while True:
             destination = numbered_output_path(base, number)
@@ -198,6 +227,17 @@ def plan_output_paths(
         planned[source] = destination
         reserved.update(normalize(path) for path in artifacts)
     return planned
+
+
+def delete_original_after_conversion(source: Path, destination: Path) -> None:
+    """Delete a source only after validating a distinct, non-empty converted file."""
+    source = source.resolve(strict=True)
+    destination = destination.resolve(strict=True)
+    if source == destination or os.path.samefile(source, destination):
+        raise ValueError("source and destination refer to the same file")
+    if not destination.is_file() or destination.stat().st_size <= 0:
+        raise ValueError("converted output is missing or empty")
+    source.unlink()
 
 
 def build_command(
@@ -225,38 +265,24 @@ def build_command(
     return command
 
 
-class ConvRotApp:
-    BG = "#111827"
-    PANEL = "#1f2937"
-    PANEL_2 = "#243044"
-    TEXT = "#f3f4f6"
-    MUTED = "#9ca3af"
+class ConvRotApp(QMainWindow):
+    BG = "#0b1120"
+    PANEL = "#111827"
+    PANEL_2 = "#182235"
+    BORDER = "#2b3a52"
+    TEXT = "#f8fafc"
+    MUTED = "#94a3b8"
     ACCENT = "#38bdf8"
-    SUCCESS = "#34d399"
     DANGER = "#fb7185"
 
     def __init__(self) -> None:
-        if TkinterDnD is None:
-            raise SystemExit("Missing dependency: tkinterdnd2. Run setup.bat first.")
-        enable_high_dpi_awareness()
-        self.root = TkinterDnD.Tk()
-        self.root.title("ComfyUI ConvRot Converter")
-        dpi = float(self.root.winfo_fpixels("1i"))
-        self.ui_scale = max(1.0, dpi / 96.0)
-        self.root.tk.call("tk", "scaling", dpi / 72.0)
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-        window_w = min(round(1000 * self.ui_scale), round(screen_w * 0.88))
-        window_h = min(round(820 * self.ui_scale), round(screen_h * 0.86))
-        pos_x = max(0, (screen_w - window_w) // 2)
-        pos_y = max(0, (screen_h - window_h) // 2)
-        self.root.geometry(f"{window_w}x{window_h}+{pos_x}+{pos_y}")
-        self.root.minsize(
-            min(round(780 * self.ui_scale), round(screen_w * 0.75)),
-            min(round(650 * self.ui_scale), round(screen_h * 0.75)),
-        )
-        self.root.configure(bg=self.BG)
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        if QApplication is None:
+            raise SystemExit("Missing dependency: PySide6. Run setup.bat first.")
+        super().__init__()
+        self.setWindowTitle("ComfyUI ConvRot Converter")
+        self.resize(1080, 860)
+        self.setMinimumSize(820, 680)
+        self.setAcceptDrops(True)
 
         self.files: list[Path] = []
         self.file_states: dict[Path, str] = {}
@@ -264,217 +290,286 @@ class ConvRotApp:
         self.worker: threading.Thread | None = None
         self.process: subprocess.Popen[str] | None = None
         self.cancel_requested = False
-
-        self.output_dir = tk.StringVar()
-        self.dry_run = tk.BooleanVar(value=False)
-        self.mseclip = tk.BooleanVar(value=False)
-        self.downcast = tk.BooleanVar(value=False)
-        self.write_report = tk.BooleanVar(value=True)
-        self.min_gemm = tk.StringVar(value="256")
         self.current_language = "en"
-        self.language = tk.StringVar(value="ENG")
-        self.status = tk.StringVar(value=self._t("status_drop"))
         self.status_context: tuple[str, dict[str, object]] | None = ("status_drop", {})
 
-        self._configure_style()
         self._build_ui()
-        self.root.after(100, self._poll_events)
+        self._configure_style()
+        self.event_timer = QTimer(self)
+        self.event_timer.timeout.connect(self._poll_events)
+        self.event_timer.start(100)
 
     def _t(self, key: str, **values: object) -> str:
         return TRANSLATIONS[self.current_language][key].format(**values)
 
     def _set_status(self, key: str, **values: object) -> None:
         self.status_context = (key, values)
-        self.status.set(self._t(key, **values))
+        self.status_label.setText(self._t(key, **values))
 
     def _set_literal_status(self, text: str) -> None:
         self.status_context = None
-        self.status.set(text)
+        self.status_label.setText(text)
 
     def _configure_style(self) -> None:
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure("TFrame", background=self.BG)
-        style.configure("Panel.TFrame", background=self.PANEL)
-        style.configure("TLabel", background=self.BG, foreground=self.TEXT, font=("Segoe UI", 10))
-        style.configure("Title.TLabel", font=("Segoe UI Semibold", 22), foreground=self.TEXT)
-        style.configure("Muted.TLabel", foreground=self.MUTED)
-        style.configure("TCheckbutton", background=self.PANEL, foreground=self.TEXT, font=("Segoe UI", 10))
-        style.map("TCheckbutton", background=[("active", self.PANEL)])
-        style.configure("TButton", font=("Segoe UI Semibold", 10), padding=(14, 8))
-        style.configure("Accent.TButton", background=self.ACCENT, foreground="#082f49")
-        style.map("Accent.TButton", background=[("active", "#7dd3fc"), ("disabled", "#374151")])
-        style.configure("Danger.TButton", background=self.DANGER, foreground="#4c0519")
-        style.configure("Treeview", background=self.PANEL_2, fieldbackground=self.PANEL_2,
-                        foreground=self.TEXT, rowheight=28, borderwidth=0)
-        style.configure("Treeview.Heading", background=self.PANEL, foreground=self.TEXT,
-                        font=("Segoe UI Semibold", 10))
-        style.map("Treeview", background=[("selected", "#075985")])
+        self.setStyleSheet(f"""
+            QMainWindow, QWidget#central {{ background: {self.BG}; color: {self.TEXT}; }}
+            QWidget {{ font-family: 'Segoe UI'; font-size: 10pt; color: {self.TEXT}; }}
+            QLabel#title {{ font-size: 24pt; font-weight: 700; }}
+            QLabel#subtitle, QLabel#muted, QLabel#status {{ color: {self.MUTED}; }}
+            QFrame#drop, QFrame#options {{
+                background: {self.PANEL}; border: 1px solid {self.BORDER}; border-radius: 12px;
+            }}
+            QLabel#dropText {{ color: {self.ACCENT}; font-size: 13pt; font-weight: 650; }}
+            QPushButton {{
+                background: {self.PANEL_2}; border: 1px solid {self.BORDER}; border-radius: 8px;
+                padding: 8px 14px; font-weight: 600;
+            }}
+            QPushButton:hover {{ background: #25334a; border-color: #46617f; }}
+            QPushButton:disabled {{ color: #64748b; background: #131c2c; border-color: #223047; }}
+            QPushButton#start {{ background: {self.ACCENT}; color: #082f49; border: none; padding: 10px 18px; }}
+            QPushButton#start:hover {{ background: #7dd3fc; }}
+            QPushButton#cancel {{ background: #3b1727; color: #fecdd3; border-color: #7f1d3b; }}
+            QLineEdit, QSpinBox, QComboBox {{
+                background: {self.PANEL_2}; border: 1px solid {self.BORDER}; border-radius: 7px;
+                padding: 7px 9px; selection-background-color: #0369a1;
+            }}
+            QComboBox::drop-down {{ border: 0; width: 24px; }}
+            QCheckBox {{ spacing: 8px; }}
+            QCheckBox::indicator {{ width: 17px; height: 17px; }}
+            QTableWidget {{
+                background: {self.PANEL}; alternate-background-color: #142033; border: 1px solid {self.BORDER};
+                border-radius: 10px; gridline-color: #24334a; selection-background-color: #075985;
+            }}
+            QHeaderView::section {{
+                background: {self.PANEL_2}; color: {self.TEXT}; border: none; border-bottom: 1px solid {self.BORDER};
+                padding: 8px; font-weight: 650;
+            }}
+            QPlainTextEdit {{
+                background: #070d18; color: #d1d5db; border: 1px solid {self.BORDER};
+                border-radius: 10px; padding: 8px; font-family: 'Cascadia Mono', Consolas; font-size: 9pt;
+            }}
+            QSplitter::handle {{ background: transparent; height: 8px; }}
+            QScrollBar:vertical {{ background: transparent; width: 12px; margin: 2px; }}
+            QScrollBar::handle:vertical {{ background: #334155; border-radius: 5px; min-height: 28px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        """)
 
     def _build_ui(self) -> None:
-        shell = ttk.Frame(self.root, padding=24)
-        shell.pack(fill="both", expand=True)
+        central = QWidget(self)
+        central.setObjectName("central")
+        self.setCentralWidget(central)
+        shell = QVBoxLayout(central)
+        shell.setContentsMargins(24, 20, 24, 20)
+        shell.setSpacing(12)
 
-        header = ttk.Frame(shell)
-        header.pack(fill="x")
-        ttk.Label(header, text="ConvRot Converter", style="Title.TLabel").pack(side="left", anchor="w")
-        language_box = ttk.Frame(header)
-        language_box.pack(side="right", anchor="e")
-        self.language_label = ttk.Label(language_box, text=self._t("language"), style="Muted.TLabel")
-        self.language_label.pack(side="left", padx=(0, 6))
-        self.language_switch = ttk.Combobox(
-            language_box, textvariable=self.language, values=("ENG", "ITA"), state="readonly", width=5,
-        )
-        self.language_switch.pack(side="left")
-        self.language_switch.bind("<<ComboboxSelected>>", self._change_language)
-        self.subtitle_label = ttk.Label(shell, text=self._t("subtitle"), style="Muted.TLabel")
-        self.subtitle_label.pack(anchor="w", pady=(2, 16))
+        header = QHBoxLayout()
+        title = QLabel("ConvRot Converter")
+        title.setObjectName("title")
+        header.addWidget(title)
+        header.addStretch()
+        self.language_label = QLabel(self._t("language"))
+        self.language_label.setObjectName("muted")
+        header.addWidget(self.language_label)
+        self.language_switch = QComboBox()
+        self.language_switch.addItems(["ENG", "ITA"])
+        self.language_switch.setFixedWidth(82)
+        self.language_switch.currentTextChanged.connect(self._change_language)
+        header.addWidget(self.language_switch)
+        shell.addLayout(header)
 
-        self.drop = tk.Label(
-            shell,
-            text=self._t("drop_default"),
-            bg=self.PANEL,
-            fg=self.ACCENT,
-            font=("Segoe UI Semibold", 13),
-            relief="flat",
-            height=6,
-            cursor="hand2",
-        )
-        self.drop.pack(fill="x")
-        self.drop.bind("<Button-1>", lambda _e: self._browse_files())
+        self.subtitle_label = QLabel(self._t("subtitle"))
+        self.subtitle_label.setObjectName("subtitle")
+        self.subtitle_label.setWordWrap(True)
+        shell.addWidget(self.subtitle_label)
 
-        buttons = ttk.Frame(shell)
-        buttons.pack(fill="x", pady=10)
-        self.add_button = ttk.Button(buttons, text=self._t("add_files"), command=self._browse_files)
-        self.add_button.pack(side="left")
-        self.remove_button = ttk.Button(buttons, text=self._t("remove_selected"), command=self._remove_selected)
-        self.remove_button.pack(side="left", padx=8)
-        self.clear_button = ttk.Button(buttons, text=self._t("clear"), command=self._clear_files)
-        self.clear_button.pack(side="left")
+        self.drop_frame = QFrame()
+        self.drop_frame.setObjectName("drop")
+        self.drop_frame.setMinimumHeight(112)
+        self.drop_frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        drop_layout = QVBoxLayout(self.drop_frame)
+        self.drop_label = QLabel(self._t("drop_default"))
+        self.drop_label.setObjectName("dropText")
+        self.drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        drop_layout.addWidget(self.drop_label)
+        self.drop_frame.installEventFilter(self)
+        shell.addWidget(self.drop_frame)
 
-        table_frame = ttk.Frame(shell, style="Panel.TFrame")
-        table_frame.pack(fill="both", expand=True)
-        self.table = ttk.Treeview(table_frame, columns=("file", "size", "state"), show="headings", height=6)
-        self.table.heading("file", text=self._t("model"))
-        self.table.heading("size", text=self._t("size"))
-        self.table.heading("state", text=self._t("state"))
-        self.table.column("file", width=round(560 * self.ui_scale), anchor="w")
-        self.table.column("size", width=round(100 * self.ui_scale), anchor="e")
-        self.table.column("state", width=round(120 * self.ui_scale), anchor="center")
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
-        self.table.configure(yscrollcommand=scrollbar.set)
-        self.table.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        queue_buttons = QHBoxLayout()
+        self.add_button = QPushButton(self._t("add_files"))
+        self.add_button.clicked.connect(self._browse_files)
+        self.remove_button = QPushButton(self._t("remove_selected"))
+        self.remove_button.clicked.connect(self._remove_selected)
+        self.clear_button = QPushButton(self._t("clear"))
+        self.clear_button.clicked.connect(self._clear_files)
+        queue_buttons.addWidget(self.add_button)
+        queue_buttons.addWidget(self.remove_button)
+        queue_buttons.addWidget(self.clear_button)
+        queue_buttons.addStretch()
+        shell.addLayout(queue_buttons)
 
-        options = ttk.Frame(shell, style="Panel.TFrame", padding=14)
-        options.pack(fill="x", pady=12)
-        self.output_label = ttk.Label(options, text=self._t("output_folder"), background=self.PANEL)
-        self.output_label.grid(row=0, column=0, columnspan=3, sticky="w")
-        output_entry = tk.Entry(options, textvariable=self.output_dir, bg=self.PANEL_2, fg=self.TEXT,
-                                insertbackground=self.TEXT, relief="flat", font=("Segoe UI", 10))
-        output_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 10), ipady=6)
-        self.browse_output_button = ttk.Button(options, text=self._t("browse"), command=self._browse_output)
-        self.browse_output_button.grid(row=1, column=2, padx=(8, 0), pady=(5, 10))
-        self.dry_run_check = ttk.Checkbutton(options, text=self._t("dry_run"), variable=self.dry_run)
-        self.dry_run_check.grid(row=2, column=0, sticky="w")
-        self.mse_check = ttk.Checkbutton(options, text=self._t("mse_clip"), variable=self.mseclip)
-        self.mse_check.grid(row=2, column=1, sticky="w")
-        self.downcast_check = ttk.Checkbutton(options, text=self._t("downcast"), variable=self.downcast)
-        self.downcast_check.grid(row=3, column=0, sticky="w")
-        self.report_check = ttk.Checkbutton(options, text=self._t("quality_report"), variable=self.write_report)
-        self.report_check.grid(row=3, column=1, sticky="w")
-        self.min_gemm_label = ttk.Label(options, text=self._t("min_gemm"), background=self.PANEL)
-        self.min_gemm_label.grid(row=2, column=2, sticky="e")
-        tk.Spinbox(options, from_=0, to=8192, increment=16, textvariable=self.min_gemm, width=8,
-                   bg=self.PANEL_2, fg=self.TEXT, buttonbackground=self.PANEL_2, relief="flat").grid(row=3, column=2, sticky="e")
-        options.columnconfigure(0, weight=1)
-        options.columnconfigure(1, weight=1)
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([self._t("model"), self._t("size"), self._t("state")])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        table_header = self.table.horizontalHeader()
+        table_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
 
-        action = ttk.Frame(shell)
-        action.pack(fill="x")
-        self.cancel_button = ttk.Button(action, text=self._t("cancel"), style="Danger.TButton", command=self._cancel, state="disabled")
-        self.cancel_button.pack(side="right", padx=(8, 0))
-        self.start_button = ttk.Button(action, text=self._t("start"), style="Accent.TButton", command=self._start)
-        self.start_button.pack(side="right")
-        # Pack fixed-size actions before the expanding status label. Otherwise
-        # the label can consume the whole row at high Windows scaling factors.
-        ttk.Label(action, textvariable=self.status, style="Muted.TLabel").pack(
-            side="left", fill="x", expand=True, padx=(0, 8)
-        )
+        options = QFrame()
+        options.setObjectName("options")
+        options_layout = QGridLayout(options)
+        options_layout.setContentsMargins(16, 14, 16, 14)
+        options_layout.setHorizontalSpacing(18)
+        options_layout.setVerticalSpacing(9)
+        self.output_label = QLabel(self._t("output_folder"))
+        options_layout.addWidget(self.output_label, 0, 0, 1, 3)
+        self.output_entry = QLineEdit()
+        options_layout.addWidget(self.output_entry, 1, 0, 1, 2)
+        self.browse_output_button = QPushButton(self._t("browse"))
+        self.browse_output_button.clicked.connect(self._browse_output)
+        options_layout.addWidget(self.browse_output_button, 1, 2)
+        self.dry_run_check = QCheckBox(self._t("dry_run"))
+        self.mse_check = QCheckBox(self._t("mse_clip"))
+        self.downcast_check = QCheckBox(self._t("downcast"))
+        self.report_check = QCheckBox(self._t("quality_report"))
+        self.report_check.setChecked(True)
+        self.delete_original_check = QCheckBox(self._t("delete_original"))
+        self.dry_run_check.toggled.connect(self._dry_run_changed)
+        options_layout.addWidget(self.dry_run_check, 2, 0)
+        options_layout.addWidget(self.mse_check, 2, 1)
+        options_layout.addWidget(self.downcast_check, 3, 0)
+        options_layout.addWidget(self.report_check, 3, 1)
+        options_layout.addWidget(self.delete_original_check, 4, 0, 1, 2)
+        self.min_gemm_label = QLabel(self._t("min_gemm"))
+        options_layout.addWidget(self.min_gemm_label, 2, 2, alignment=Qt.AlignmentFlag.AlignRight)
+        self.min_gemm_spin = QSpinBox()
+        self.min_gemm_spin.setRange(0, 8192)
+        self.min_gemm_spin.setSingleStep(16)
+        self.min_gemm_spin.setValue(256)
+        self.min_gemm_spin.setFixedWidth(105)
+        options_layout.addWidget(self.min_gemm_spin, 3, 2, alignment=Qt.AlignmentFlag.AlignRight)
+        options_layout.setColumnStretch(0, 1)
+        options_layout.setColumnStretch(1, 1)
 
-        log_frame = ttk.Frame(shell, style="Panel.TFrame")
-        log_frame.pack(fill="both", expand=True, pady=(12, 0))
-        self.log = tk.Text(log_frame, height=9, bg="#0b1220", fg="#d1d5db", insertbackground=self.TEXT,
-                           relief="flat", font=("Cascadia Mono", 9), wrap="word", state="disabled")
-        log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log.yview)
-        self.log.configure(yscrollcommand=log_scroll.set)
-        self.log.pack(side="left", fill="both", expand=True)
-        log_scroll.pack(side="right", fill="y")
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # The widget directly under the mouse receives Windows drop messages.
-        # Register every large surface, not only the banner, so dropping anywhere
-        # in the window behaves consistently across Tk/Windows versions.
-        self._register_drop_targets(
-            self.root, shell, self.drop, buttons, table_frame, self.table,
-            options, action, log_frame, self.log,
-        )
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.table)
+        lower = QWidget()
+        lower_layout = QVBoxLayout(lower)
+        lower_layout.setContentsMargins(0, 0, 0, 0)
+        lower_layout.setSpacing(12)
+        lower_layout.addWidget(options)
+        action = QHBoxLayout()
+        self.status_label = QLabel(self._t("status_drop"))
+        self.status_label.setObjectName("status")
+        self.status_label.setWordWrap(True)
+        action.addWidget(self.status_label, 1)
+        self.start_button = QPushButton(self._t("start"))
+        self.start_button.setObjectName("start")
+        self.start_button.clicked.connect(self._start)
+        self.cancel_button = QPushButton(self._t("cancel"))
+        self.cancel_button.setObjectName("cancel")
+        self.cancel_button.clicked.connect(self._cancel)
+        self.cancel_button.setEnabled(False)
+        action.addWidget(self.start_button)
+        action.addWidget(self.cancel_button)
+        lower_layout.addLayout(action)
+        lower_layout.addWidget(self.log, 1)
+        splitter.addWidget(lower)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([230, 390])
+        shell.addWidget(splitter, 1)
 
-    def _change_language(self, _event: tk.Event | None = None) -> None:
-        self.current_language = "en" if self.language.get() == "ENG" else "it"
+    def _change_language(self, language: str) -> None:
+        self.current_language = "en" if language == "ENG" else "it"
         self._apply_language()
 
     def _apply_language(self) -> None:
-        self.language_label.configure(text=self._t("language"))
-        self.subtitle_label.configure(text=self._t("subtitle"))
-        self.add_button.configure(text=self._t("add_files"))
-        self.remove_button.configure(text=self._t("remove_selected"))
-        self.clear_button.configure(text=self._t("clear"))
-        self.output_label.configure(text=self._t("output_folder"))
-        self.browse_output_button.configure(text=self._t("browse"))
-        self.dry_run_check.configure(text=self._t("dry_run"))
-        self.mse_check.configure(text=self._t("mse_clip"))
-        self.downcast_check.configure(text=self._t("downcast"))
-        self.report_check.configure(text=self._t("quality_report"))
-        self.min_gemm_label.configure(text=self._t("min_gemm"))
-        self.cancel_button.configure(text=self._t("cancel"))
-        self.start_button.configure(text=self._t("start"))
-        self.table.heading("file", text=self._t("model"))
-        self.table.heading("size", text=self._t("size"))
-        self.table.heading("state", text=self._t("state"))
+        self.language_label.setText(self._t("language"))
+        self.subtitle_label.setText(self._t("subtitle"))
+        self.add_button.setText(self._t("add_files"))
+        self.remove_button.setText(self._t("remove_selected"))
+        self.clear_button.setText(self._t("clear"))
+        self.output_label.setText(self._t("output_folder"))
+        self.browse_output_button.setText(self._t("browse"))
+        self.dry_run_check.setText(self._t("dry_run"))
+        self.mse_check.setText(self._t("mse_clip"))
+        self.downcast_check.setText(self._t("downcast"))
+        self.report_check.setText(self._t("quality_report"))
+        self.delete_original_check.setText(self._t("delete_original"))
+        self.min_gemm_label.setText(self._t("min_gemm"))
+        self.cancel_button.setText(self._t("cancel"))
+        self.start_button.setText(self._t("start"))
+        self.table.setHorizontalHeaderLabels([self._t("model"), self._t("size"), self._t("state")])
         self._reset_drop_banner()
         for path, state_key in self.file_states.items():
-            if self.table.exists(str(path)):
-                values = list(self.table.item(str(path), "values"))
-                values[2] = self._t(state_key)
-                self.table.item(str(path), values=values)
+            row = self._row_for_path(path)
+            if row is not None:
+                self.table.item(row, 2).setText(self._t(state_key))
         if self.status_context is not None:
             key, values = self.status_context
-            self.status.set(self._t(key, **values))
+            self.status_label.setText(self._t(key, **values))
 
-    def _register_drop_targets(self, *widgets: tk.Misc) -> None:
-        for widget in widgets:
-            widget.drop_target_register(DND_FILES)
-            widget.dnd_bind("<<DropEnter>>", self._on_drop_enter)
-            widget.dnd_bind("<<DropLeave>>", self._on_drop_leave)
-            widget.dnd_bind("<<Drop>>", self._on_drop)
+    def _worker_active(self) -> bool:
+        return bool(self.worker and self.worker.is_alive())
 
-    def _on_drop_enter(self, event: tk.Event) -> str:
-        if not (self.worker and self.worker.is_alive()):
-            self.drop.configure(bg="#075985", fg="#e0f2fe", text=self._t("drop_release"))
+    def _dry_run_changed(self, checked: bool) -> None:
+        if checked:
+            self.delete_original_check.setChecked(False)
+        self.delete_original_check.setEnabled(not checked)
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if watched is self.drop_frame and event.type() == QEvent.Type.MouseButtonRelease:
+            if not self._worker_active():
+                self._browse_files()
+            return True
+        return super().eventFilter(watched, event)
+
+    def _drop_paths(self, event: QDropEvent | QDragEnterEvent) -> list[Path]:
+        return [Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        paths = self._drop_paths(event)
+        if paths and not self._worker_active():
+            event.acceptProposedAction()
+            self.drop_frame.setStyleSheet("QFrame#drop { background: #075985; border-color: #38bdf8; }")
+            self.drop_label.setStyleSheet("color: #e0f2fe;")
+            self.drop_label.setText(self._t("drop_release"))
             self._set_status("status_release")
-        return getattr(event, "action", COPY) or COPY
+        else:
+            event.ignore()
 
-    def _on_drop_leave(self, event: tk.Event) -> str:
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
         self._reset_drop_banner()
-        if not (self.worker and self.worker.is_alive()):
-            if self.files:
-                self._set_status("status_queue", count=len(self.files))
-            else:
-                self._set_status("status_drop")
-        return getattr(event, "action", COPY) or COPY
+        if not self._worker_active():
+            self._set_status("status_queue", count=len(self.files)) if self.files else self._set_status("status_drop")
+        event.accept()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        self._reset_drop_banner()
+        if self._worker_active():
+            self._set_status("status_wait")
+            event.ignore()
+            return
+        self._add_files(self._drop_paths(event))
+        event.acceptProposedAction()
 
     def _reset_drop_banner(self) -> None:
-        self.drop.configure(bg=self.PANEL, fg=self.ACCENT, text=self._t("drop_default"))
+        self.drop_frame.setStyleSheet("")
+        self.drop_label.setStyleSheet("")
+        self.drop_label.setText(self._t("drop_default"))
 
     @staticmethod
     def _size_label(path: Path) -> str:
@@ -485,28 +580,11 @@ class ConvRotApp:
             size /= 1024
         return ""
 
-    def _on_drop(self, event: tk.Event) -> str:
-        self._reset_drop_banner()
-        if self.worker and self.worker.is_alive():
-            self._set_status("status_wait")
-            return getattr(event, "action", COPY) or COPY
-        try:
-            dropped = [Path(item) for item in self.root.tk.splitlist(event.data)]
-        except (tk.TclError, TypeError) as exc:
-            self._set_status("status_drop_error", error=exc)
-            return getattr(event, "action", COPY) or COPY
-        self._add_files(dropped)
-        return getattr(event, "action", COPY) or COPY
-
     def _browse_files(self) -> None:
-        paths = filedialog.askopenfilenames(
-            title=self._t("select_models"),
-            filetypes=[
-                (self._t("models_filter"), "*.safetensors *.pth *.pt *.ckpt *.bin"),
-                (self._t("all_files"), "*.*"),
-            ],
-        )
-        self._add_files([Path(p) for p in paths])
+        model_filter = f"{self._t('models_filter')} (*.safetensors *.pth *.pt *.ckpt *.bin)"
+        all_filter = f"{self._t('all_files')} (*)"
+        paths, _ = QFileDialog.getOpenFileNames(self, self._t("select_models"), "", f"{model_filter};;{all_filter}")
+        self._add_files([Path(path) for path in paths])
 
     def _add_files(self, paths: list[Path]) -> None:
         rejected = 0
@@ -518,90 +596,106 @@ class ConvRotApp:
             if path not in self.files:
                 self.files.append(path)
                 self.file_states[path] = "state_waiting"
-                self.table.insert(
-                    "", "end", iid=str(path),
-                    values=(path.name, self._size_label(path), self._t("state_waiting")),
-                )
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                name_item = QTableWidgetItem(path.name)
+                name_item.setData(Qt.ItemDataRole.UserRole, str(path))
+                name_item.setToolTip(str(path))
+                size_item = QTableWidgetItem(self._size_label(path))
+                size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                state_item = QTableWidgetItem(self._t("state_waiting"))
+                state_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, 0, name_item)
+                self.table.setItem(row, 1, size_item)
+                self.table.setItem(row, 2, state_item)
         if rejected:
             self._set_status("status_queue_rejected", count=len(self.files), rejected=rejected)
         else:
             self._set_status("status_queue", count=len(self.files))
 
+    def _row_for_path(self, path: Path) -> int | None:
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, 0).data(Qt.ItemDataRole.UserRole) == str(path):
+                return row
+        return None
+
     def _remove_selected(self) -> None:
-        if self.worker and self.worker.is_alive():
+        if self._worker_active():
             return
-        for iid in self.table.selection():
-            path = Path(iid)
+        rows = sorted({index.row() for index in self.table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            path = Path(self.table.item(row, 0).data(Qt.ItemDataRole.UserRole))
             if path in self.files:
                 self.files.remove(path)
             self.file_states.pop(path, None)
-            self.table.delete(iid)
-        self._set_status("status_queue", count=len(self.files))
+            self.table.removeRow(row)
+        self._set_status("status_queue", count=len(self.files)) if self.files else self._set_status("status_drop")
 
     def _clear_files(self) -> None:
-        if self.worker and self.worker.is_alive():
+        if self._worker_active():
             return
         self.files.clear()
         self.file_states.clear()
-        self.table.delete(*self.table.get_children())
+        self.table.setRowCount(0)
         self._set_status("status_drop")
 
     def _browse_output(self) -> None:
-        chosen = filedialog.askdirectory(title=self._t("destination_folder"))
+        chosen = QFileDialog.getExistingDirectory(self, self._t("destination_folder"))
         if chosen:
-            self.output_dir.set(chosen)
+            self.output_entry.setText(chosen)
 
     def _append_log(self, text: str) -> None:
-        self.log.configure(state="normal")
-        self.log.insert("end", text)
-        self.log.see("end")
-        self.log.configure(state="disabled")
+        cursor = self.log.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(text)
+        self.log.setTextCursor(cursor)
+        self.log.ensureCursorVisible()
 
     def _start(self) -> None:
         if not self.files:
-            messagebox.showinfo(self._t("no_model_title"), self._t("no_model_message"))
+            QMessageBox.information(self, self._t("no_model_title"), self._t("no_model_message"))
             return
-        try:
-            min_gemm = int(self.min_gemm.get())
-            if min_gemm < 0:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror(self._t("invalid_value_title"), self._t("invalid_value_message"))
-            return
-
-        out_dir = Path(self.output_dir.get()).expanduser().resolve() if self.output_dir.get().strip() else None
+        min_gemm = self.min_gemm_spin.value()
+        output_text = self.output_entry.text().strip()
+        out_dir = Path(output_text).expanduser().resolve() if output_text else None
         if out_dir and not out_dir.is_dir():
-            messagebox.showerror(self._t("invalid_folder_title"), self._t("invalid_folder_message"))
+            QMessageBox.critical(self, self._t("invalid_folder_title"), self._t("invalid_folder_message"))
             return
 
         self.cancel_requested = False
-        self.start_button.configure(state="disabled")
-        self.cancel_button.configure(state="normal")
-        self.drop.configure(cursor="arrow")
+        self.start_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+        self.drop_frame.setCursor(Qt.CursorShape.ArrowCursor)
         self._append_log("\n" + "=" * 72 + "\n" + self._t("log_queue_start") + "\n")
         snapshot = list(self.files)
-        dry_run = self.dry_run.get()
-        destinations = {} if dry_run else plan_output_paths(snapshot, out_dir, self.write_report.get())
-        options = (destinations, dry_run, min_gemm, self.mseclip.get(), self.downcast.get(), self.write_report.get())
+        dry_run = self.dry_run_check.isChecked()
+        write_report = self.report_check.isChecked()
+        mseclip = self.mse_check.isChecked()
+        delete_original = self.delete_original_check.isChecked()
+        destinations = {} if dry_run else plan_output_paths(snapshot, out_dir, write_report, mseclip)
+        options = (
+            destinations, dry_run, min_gemm, mseclip,
+            self.downcast_check.isChecked(), write_report, delete_original,
+        )
         self.worker = threading.Thread(target=self._run_queue, args=(snapshot, options), daemon=True)
         self.worker.start()
 
     def _run_queue(
         self,
         files: list[Path],
-        options: tuple[dict[Path, Path], bool, int, bool, bool, bool],
+        options: tuple[dict[Path, Path], bool, int, bool, bool, bool, bool],
     ) -> None:
-        destinations, dry_run, min_gemm, mseclip, downcast, write_report = options
+        destinations, dry_run, min_gemm, mseclip, downcast, write_report, delete_original = options
         successes = 0
         for index, source in enumerate(files, start=1):
             if self.cancel_requested:
                 break
             destination = None if dry_run else destinations[source]
-            report = None
-            if write_report and destination is not None:
-                report = destination.with_suffix(".quality.tsv")
-            command = build_command(source, destination, dry_run=dry_run, min_gemm=min_gemm,
-                                    mseclip=mseclip, downcast_fp32=downcast, report_path=report)
+            report = destination.with_suffix(".quality.tsv") if write_report and destination else None
+            command = build_command(
+                source, destination, dry_run=dry_run, min_gemm=min_gemm,
+                mseclip=mseclip, downcast_fp32=downcast, report_path=report,
+            )
             self.events.put(("state", (source, "state_running")))
             self.events.put(("status", f"{index}/{len(files)} — {source.name}"))
             self.events.put(("log", f"\n>>> {source}\n"))
@@ -634,7 +728,13 @@ class ConvRotApp:
                 break
             if return_code == 0:
                 successes += 1
-                self.events.put(("state", (source, "state_completed" if not dry_run else "state_analyzed")))
+                if delete_original and destination is not None:
+                    try:
+                        delete_original_after_conversion(source, destination)
+                        self.events.put(("log_key", ("log_deleted_original", {"path": source})))
+                    except (OSError, ValueError) as exc:
+                        self.events.put(("log_key", ("log_delete_error", {"path": source, "error": exc})))
+                self.events.put(("state", (source, "state_analyzed" if dry_run else "state_completed")))
             else:
                 self.events.put(("state", (source, "state_error")))
         self.events.put(("done", (successes, len(files), self.cancel_requested)))
@@ -663,15 +763,14 @@ class ConvRotApp:
                 elif kind == "state":
                     source, state_key = payload  # type: ignore[misc]
                     self.file_states[source] = state_key
-                    if self.table.exists(str(source)):
-                        values = list(self.table.item(str(source), "values"))
-                        values[2] = self._t(state_key)
-                        self.table.item(str(source), values=values)
+                    row = self._row_for_path(source)
+                    if row is not None:
+                        self.table.item(row, 2).setText(self._t(state_key))
                 elif kind == "done":
                     successes, total, cancelled = payload  # type: ignore[misc]
-                    self.start_button.configure(state="normal")
-                    self.cancel_button.configure(state="disabled")
-                    self.drop.configure(cursor="hand2")
+                    self.start_button.setEnabled(True)
+                    self.cancel_button.setEnabled(False)
+                    self.drop_frame.setCursor(Qt.CursorShape.PointingHandCursor)
                     if cancelled:
                         self._set_status("status_cancelled")
                         self._append_log(self._t("log_cancelled"))
@@ -680,25 +779,38 @@ class ConvRotApp:
                         self._append_log(self._t("log_done", successes=successes, total=total))
         except queue.Empty:
             pass
-        self.root.after(100, self._poll_events)
 
-    def _on_close(self) -> None:
-        if self.worker and self.worker.is_alive():
-            if not messagebox.askyesno(
-                self._t("active_conversion_title"), self._t("active_conversion_message")
-            ):
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._worker_active():
+            answer = QMessageBox.question(
+                self, self._t("active_conversion_title"), self._t("active_conversion_message"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
                 return
             self._cancel()
-        self.root.destroy()
+        event.accept()
 
-    def run(self) -> None:
-        if not QUANTIZER.is_file():
-            messagebox.showerror(
-                self._t("missing_script_title"), self._t("missing_script_message", path=QUANTIZER)
-            )
-            return
-        self.root.mainloop()
+
+def main() -> int:
+    if QApplication is None:
+        raise SystemExit("Missing dependency: PySide6. Run setup.bat first.")
+    enable_high_dpi_awareness()
+    app = QApplication(sys.argv)
+    app.setApplicationName("ComfyUI ConvRot Converter")
+    app.setStyle("Fusion")
+    window = ConvRotApp()
+    if not QUANTIZER.is_file():
+        QMessageBox.critical(
+            window, window._t("missing_script_title"),
+            window._t("missing_script_message", path=QUANTIZER),
+        )
+        return 1
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    ConvRotApp().run()
+    raise SystemExit(main())

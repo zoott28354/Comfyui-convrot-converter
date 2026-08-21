@@ -46,6 +46,7 @@ except ImportError:  # helper functions remain importable before setup
 
 
 APP_DIR = Path(__file__).resolve().parent
+APP_VERSION = "1.0.0"
 QUANTIZER = APP_DIR / "quant_int8_convrot.py"
 APP_ICON = APP_DIR / "assets" / "app-icon.ico"
 SUPPORTED_EXTENSIONS = {".safetensors", ".pth", ".pt", ".ckpt", ".bin"}
@@ -683,10 +684,13 @@ class ConvRotApp(QMainWindow):
         heading = QVBoxLayout()
         name_label = QLabel("ComfyUI ConvRot Converter")
         name_label.setObjectName("aboutTitle")
+        version_label = QLabel(f"Version {APP_VERSION}")
+        version_label.setObjectName("muted")
         description_label = QLabel(self._t("about_description"))
         description_label.setObjectName("muted")
         description_label.setWordWrap(True)
         heading.addWidget(name_label)
+        heading.addWidget(version_label)
         heading.addWidget(description_label)
         heading.addStretch()
         top.addLayout(heading, 1)

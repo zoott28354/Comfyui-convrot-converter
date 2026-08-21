@@ -9,3 +9,4 @@ __pycache__/
 *.quality.tsv
 *.partial
 start.bat
+dist/

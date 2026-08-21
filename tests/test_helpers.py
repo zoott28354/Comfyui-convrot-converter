@@ -56,6 +56,7 @@ except ImportError:
 
 from convrot_gui import (
     APP_ICON,
+    APP_VERSION,
     TRANSLATIONS,
     build_command,
     delete_original_after_conversion,
@@ -103,6 +104,9 @@ class HelperTests(unittest.TestCase):
         header = APP_ICON.read_bytes()[:6]
         self.assertEqual(header[:4], b"\x00\x00\x01\x00")
         self.assertEqual(int.from_bytes(header[4:6], "little"), 7)
+
+    def test_application_version_matches_first_release(self):
+        self.assertEqual(APP_VERSION, "1.0.0")
 
     def test_translations_have_identical_keys(self):
         self.assertEqual(set(TRANSLATIONS["it"]), set(TRANSLATIONS["en"]))

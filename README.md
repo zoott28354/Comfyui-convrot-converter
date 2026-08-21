@@ -1,5 +1,7 @@
 # ComfyUI ConvRot Converter for Windows
 
+<p align="center"><img src="assets/app-icon.png" alt="ComfyUI ConvRot Converter icon" width="144"></p>
+
 A modern PySide6 drag-and-drop interface for converting ComfyUI models to **INT8 + ConvRot**, available in English and Italian. The converter is based on Comfy-Org's [`quant_int8_convrot.py`](https://github.com/Comfy-Org/comfy-model-tools/blob/main/quant_int8_convrot.py), with additional interface, safety checks, and protected presets for selected model families. This project is independent and is not an official Comfy-Org release.
 
 This application was created for users who keep many models spread across numerous folders. In that situation, repeatedly entering long command-line paths and options quickly becomes inconvenient. With a drag-and-drop queue, models can be collected from different locations, analyzed, and converted through one simple interface.
@@ -46,6 +48,8 @@ From the command line, selection can be controlled with `--preset auto`, `--pres
 Drag-and-drop works across the entire window, including the queue table and log panel. On Windows, do not run `start.bat` as administrator: Windows blocks dragging from a non-elevated File Explorer process into an elevated application.
 
 The PySide6 interface uses native drag-and-drop, responsive layouts, and per-monitor Windows DPI scaling, including 4K displays at 150–200% desktop scaling.
+
+Every added model is checked automatically with the converter's non-writing analysis mode. The **Compatibility** column and detail panel report the detected source dtype and preset, eligible layers and parameters, and approximate ConvRot coverage. **Ready to convert** confirms technical compatibility; **Convertible, limited benefit** means only a small portion is eligible; **Do not convert** identifies an already quantized source. Visual quality is still verified by the optional `.quality.tsv` report after conversion.
 
 Output names follow the upstream converter: `model_bf16.safetensors` becomes `model_int8_convrot.safetensors`. If the original name does not contain `bf16`, `fp16`, or `fp32`, `_int8_convrot` is appended.
 

@@ -10,15 +10,17 @@ import subprocess
 import sys
 import threading
 import ctypes
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
     from PySide6.QtCore import QEvent, Qt, QTimer
-    from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDragLeaveEvent, QDropEvent
+    from PySide6.QtGui import QColor, QCloseEvent, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
         QComboBox,
+        QDialog,
         QFileDialog,
         QFrame,
         QGridLayout,
@@ -45,6 +47,7 @@ except ImportError:  # helper functions remain importable before setup
 
 APP_DIR = Path(__file__).resolve().parent
 QUANTIZER = APP_DIR / "quant_int8_convrot.py"
+APP_ICON = APP_DIR / "assets" / "app-icon.ico"
 SUPPORTED_EXTENSIONS = {".safetensors", ".pth", ".pt", ".ckpt", ".bin"}
 
 TRANSLATIONS = {
@@ -84,6 +87,27 @@ TRANSLATIONS = {
         "state_completed": "Completato",
         "state_analyzed": "Analizzato",
         "state_error": "Errore",
+        "compatibility": "Compatibilità",
+        "compatibility_title": "Controllo automatico compatibilità",
+        "compatibility_select": "Seleziona un modello per vedere il risultato dell'analisi.",
+        "compatibility_checking": "Analisi in corso…",
+        "compatibility_ready": "Pronto per la conversione",
+        "compatibility_limited": "Convertibile, vantaggio limitato",
+        "compatibility_unsafe": "Non convertire",
+        "compatibility_failed": "Non compatibile",
+        "compatibility_details": "Sorgente {dtype} • preset {preset} • {layers} livelli • {params:.2f}B parametri • copertura {coverage:.1f}%",
+        "compatibility_ready_note": "La struttura è tecnicamente compatibile. Il report qualità verificherà il risultato dopo la conversione.",
+        "compatibility_limited_note": "La conversione è possibile, ma interessa solo una parte ridotta del modello.",
+        "compatibility_unsafe_note": "La sorgente risulta già quantizzata: una seconda quantizzazione può peggiorare sensibilmente la qualità.",
+        "compatibility_failed_note": "Il controllo automatico non ha trovato livelli compatibili o ha restituito un errore: {error}",
+        "status_preflight": "Controllo compatibilità di {count} modello/i…",
+        "about": "Informazioni",
+        "about_description": "Conversione drag-and-drop di modelli ComfyUI in INT8 + ConvRot.",
+        "about_created_by": "Creato da <a href=\"https://github.com/zoott28354\">zoott28354</a>",
+        "about_project": "<a href=\"https://github.com/zoott28354/Comfyui-convrot-converter\">Progetto su GitHub</a>",
+        "about_based_on": "Convertitore basato sugli strumenti open source di <a href=\"https://github.com/Comfy-Org/comfy-model-tools\">Comfy-Org</a>.",
+        "about_license": "Software libero distribuito con licenza GNU GPL-3.0.",
+        "close": "Chiudi",
         "select_models": "Seleziona modelli ComfyUI",
         "models_filter": "Modelli",
         "all_files": "Tutti i file",
@@ -141,6 +165,27 @@ TRANSLATIONS = {
         "state_completed": "Completed",
         "state_analyzed": "Analyzed",
         "state_error": "Error",
+        "compatibility": "Compatibility",
+        "compatibility_title": "Automatic compatibility check",
+        "compatibility_select": "Select a model to view its analysis result.",
+        "compatibility_checking": "Checking…",
+        "compatibility_ready": "Ready to convert",
+        "compatibility_limited": "Convertible, limited benefit",
+        "compatibility_unsafe": "Do not convert",
+        "compatibility_failed": "Not compatible",
+        "compatibility_details": "{dtype} source • {preset} preset • {layers} layers • {params:.2f}B parameters • {coverage:.1f}% coverage",
+        "compatibility_ready_note": "The structure is technically compatible. The quality report will verify the result after conversion.",
+        "compatibility_limited_note": "Conversion is possible, but it affects only a small part of the model.",
+        "compatibility_unsafe_note": "The source is already quantized: a second quantization can significantly reduce quality.",
+        "compatibility_failed_note": "The automatic check found no compatible layers or returned an error: {error}",
+        "status_preflight": "Checking compatibility for {count} model(s)…",
+        "about": "About",
+        "about_description": "Drag-and-drop conversion of ComfyUI models to INT8 + ConvRot.",
+        "about_created_by": "Created by <a href=\"https://github.com/zoott28354\">zoott28354</a>",
+        "about_project": "<a href=\"https://github.com/zoott28354/Comfyui-convrot-converter\">Project on GitHub</a>",
+        "about_based_on": "Converter based on the open-source tools by <a href=\"https://github.com/Comfy-Org/comfy-model-tools\">Comfy-Org</a>.",
+        "about_license": "Free software released under the GNU GPL-3.0 license.",
+        "close": "Close",
         "select_models": "Select ComfyUI models",
         "models_filter": "Models",
         "all_files": "All files",
@@ -185,6 +230,59 @@ def enable_high_dpi_awareness() -> None:
         ctypes.windll.user32.SetProcessDPIAware()
     except (AttributeError, OSError):
         pass
+
+
+@dataclass(frozen=True)
+class CompatibilityResult:
+    verdict: str
+    source_dtype: str = "unknown"
+    preset: str = "unknown"
+    quantized_layers: int = 0
+    quantized_params_b: float = 0.0
+    source_elements_b: float = 0.0
+    error: str = ""
+
+    @property
+    def coverage(self) -> float:
+        if self.source_elements_b <= 0:
+            return 0.0
+        return min(100.0, self.quantized_params_b / self.source_elements_b * 100.0)
+
+
+def parse_compatibility_output(output: str, return_code: int) -> CompatibilityResult:
+    """Turn quantizer dry-run output into a conservative technical verdict."""
+    dtype_rows = re.findall(
+        r"^\s+(BF16|F16|F32|F8_E4M3|F8_E5M2|I8)\s+([0-9.]+)B elements\s+([0-9.]+)%",
+        output,
+        flags=re.MULTILINE,
+    )
+    source_elements = sum(float(elements) for _, elements, _ in dtype_rows)
+    source_dtype = max(dtype_rows, key=lambda row: float(row[2]))[0] if dtype_rows else "unknown"
+    preset_match = re.search(r"^layer-selection preset:\s*(\S+)", output, flags=re.MULTILINE)
+    layers_match = re.search(r"^QUANTIZE\s+(\d+)\s+layers", output, flags=re.MULTILINE)
+    params_match = re.search(r"quantized params:\s*([0-9.]+)B", output)
+    preset = preset_match.group(1) if preset_match else "unknown"
+    layers = int(layers_match.group(1)) if layers_match else 0
+    params = float(params_match.group(1)) if params_match else 0.0
+
+    if return_code != 0:
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        return CompatibilityResult(
+            "failed", source_dtype, preset, layers, params, source_elements,
+            lines[-1] if lines else f"exit code {return_code}",
+        )
+    if "already predominantly FP8" in output or "already predominantly INT8" in output \
+            or source_dtype.startswith("F8") or source_dtype == "I8":
+        return CompatibilityResult("unsafe", source_dtype, preset, layers, params, source_elements)
+    if layers <= 0 or params <= 0:
+        return CompatibilityResult(
+            "failed", source_dtype, preset, layers, params, source_elements,
+            "no eligible INT8 ConvRot layers",
+        )
+
+    coverage = params / source_elements * 100.0 if source_elements else 0.0
+    verdict = "ready" if coverage >= 25.0 else "limited"
+    return CompatibilityResult(verdict, source_dtype, preset, layers, params, source_elements)
 
 
 def output_name(source: Path, mseclip: bool = False) -> str:
@@ -286,9 +384,13 @@ class ConvRotApp(QMainWindow):
 
         self.files: list[Path] = []
         self.file_states: dict[Path, str] = {}
+        self.compatibility_results: dict[Path, CompatibilityResult] = {}
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.process: subprocess.Popen[str] | None = None
+        self.preflight_thread: threading.Thread | None = None
+        self.preflight_process: subprocess.Popen[str] | None = None
+        self.preflight_generation = 0
         self.cancel_requested = False
         self.current_language = "en"
         self.status_context: tuple[str, dict[str, object]] | None = ("status_drop", {})
@@ -312,14 +414,16 @@ class ConvRotApp(QMainWindow):
 
     def _configure_style(self) -> None:
         self.setStyleSheet(f"""
-            QMainWindow, QWidget#central {{ background: {self.BG}; color: {self.TEXT}; }}
+            QMainWindow, QWidget#central, QDialog {{ background: {self.BG}; color: {self.TEXT}; }}
             QWidget {{ font-family: 'Segoe UI'; font-size: 10pt; color: {self.TEXT}; }}
             QLabel#title {{ font-size: 24pt; font-weight: 700; }}
+            QLabel#aboutTitle {{ font-size: 17pt; font-weight: 700; }}
             QLabel#subtitle, QLabel#muted, QLabel#status {{ color: {self.MUTED}; }}
-            QFrame#drop, QFrame#options {{
+            QFrame#drop, QFrame#options, QFrame#compatibilityPanel {{
                 background: {self.PANEL}; border: 1px solid {self.BORDER}; border-radius: 12px;
             }}
             QLabel#dropText {{ color: {self.ACCENT}; font-size: 13pt; font-weight: 650; }}
+            QLabel#compatibilitySummary {{ font-size: 13pt; font-weight: 700; }}
             QPushButton {{
                 background: {self.PANEL_2}; border: 1px solid {self.BORDER}; border-radius: 8px;
                 padding: 8px 14px; font-weight: 600;
@@ -329,6 +433,7 @@ class ConvRotApp(QMainWindow):
             QPushButton#start {{ background: {self.ACCENT}; color: #082f49; border: none; padding: 10px 18px; }}
             QPushButton#start:hover {{ background: #7dd3fc; }}
             QPushButton#cancel {{ background: #3b1727; color: #fecdd3; border-color: #7f1d3b; }}
+            QPushButton#about {{ font-size: 12pt; padding: 0; border-radius: 18px; }}
             QLineEdit, QSpinBox, QComboBox {{
                 background: {self.PANEL_2}; border: 1px solid {self.BORDER}; border-radius: 7px;
                 padding: 7px 9px; selection-background-color: #0369a1;
@@ -375,6 +480,12 @@ class ConvRotApp(QMainWindow):
         self.language_switch.setFixedWidth(82)
         self.language_switch.currentTextChanged.connect(self._change_language)
         header.addWidget(self.language_switch)
+        self.about_button = QPushButton("?")
+        self.about_button.setObjectName("about")
+        self.about_button.setFixedSize(36, 36)
+        self.about_button.setToolTip(self._t("about"))
+        self.about_button.clicked.connect(self._show_about)
+        header.addWidget(self.about_button)
         shell.addLayout(header)
 
         self.subtitle_label = QLabel(self._t("subtitle"))
@@ -408,8 +519,10 @@ class ConvRotApp(QMainWindow):
         queue_buttons.addStretch()
         shell.addLayout(queue_buttons)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels([self._t("model"), self._t("size"), self._t("state")])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels([
+            self._t("model"), self._t("size"), self._t("state"), self._t("compatibility")
+        ])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -420,6 +533,24 @@ class ConvRotApp(QMainWindow):
         table_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         table_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.itemSelectionChanged.connect(self._update_compatibility_panel)
+
+        self.compatibility_panel = QFrame()
+        self.compatibility_panel.setObjectName("compatibilityPanel")
+        compatibility_layout = QVBoxLayout(self.compatibility_panel)
+        compatibility_layout.setContentsMargins(16, 12, 16, 12)
+        compatibility_layout.setSpacing(4)
+        self.compatibility_title_label = QLabel(self._t("compatibility_title"))
+        self.compatibility_title_label.setObjectName("muted")
+        self.compatibility_summary_label = QLabel(self._t("compatibility_select"))
+        self.compatibility_summary_label.setObjectName("compatibilitySummary")
+        self.compatibility_details_label = QLabel("")
+        self.compatibility_details_label.setObjectName("muted")
+        self.compatibility_details_label.setWordWrap(True)
+        compatibility_layout.addWidget(self.compatibility_title_label)
+        compatibility_layout.addWidget(self.compatibility_summary_label)
+        compatibility_layout.addWidget(self.compatibility_details_label)
 
         options = QFrame()
         options.setObjectName("options")
@@ -453,6 +584,7 @@ class ConvRotApp(QMainWindow):
         self.min_gemm_spin.setSingleStep(16)
         self.min_gemm_spin.setValue(256)
         self.min_gemm_spin.setFixedWidth(105)
+        self.min_gemm_spin.valueChanged.connect(self._preflight_settings_changed)
         options_layout.addWidget(self.min_gemm_spin, 3, 2, alignment=Qt.AlignmentFlag.AlignRight)
         options_layout.setColumnStretch(0, 1)
         options_layout.setColumnStretch(1, 1)
@@ -469,6 +601,7 @@ class ConvRotApp(QMainWindow):
         lower_layout = QVBoxLayout(lower)
         lower_layout.setContentsMargins(0, 0, 0, 0)
         lower_layout.setSpacing(12)
+        lower_layout.addWidget(self.compatibility_panel)
         lower_layout.addWidget(options)
         action = QHBoxLayout()
         self.status_label = QLabel(self._t("status_drop"))
@@ -512,23 +645,170 @@ class ConvRotApp(QMainWindow):
         self.min_gemm_label.setText(self._t("min_gemm"))
         self.cancel_button.setText(self._t("cancel"))
         self.start_button.setText(self._t("start"))
-        self.table.setHorizontalHeaderLabels([self._t("model"), self._t("size"), self._t("state")])
+        self.about_button.setToolTip(self._t("about"))
+        self.compatibility_title_label.setText(self._t("compatibility_title"))
+        self.table.setHorizontalHeaderLabels([
+            self._t("model"), self._t("size"), self._t("state"), self._t("compatibility")
+        ])
         self._reset_drop_banner()
         for path, state_key in self.file_states.items():
             row = self._row_for_path(path)
             if row is not None:
                 self.table.item(row, 2).setText(self._t(state_key))
+                self._set_compatibility_cell(row, self.compatibility_results.get(path))
+        self._update_compatibility_panel()
         if self.status_context is not None:
             key, values = self.status_context
             self.status_label.setText(self._t(key, **values))
 
+    def _show_about(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self._t("about"))
+        dialog.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        dialog.setModal(True)
+        dialog.setMinimumWidth(470)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        icon_label = QLabel()
+        if APP_ICON.is_file():
+            icon_label.setPixmap(QIcon(str(APP_ICON)).pixmap(80, 80))
+        icon_label.setFixedSize(88, 88)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(icon_label)
+
+        heading = QVBoxLayout()
+        name_label = QLabel("ComfyUI ConvRot Converter")
+        name_label.setObjectName("aboutTitle")
+        description_label = QLabel(self._t("about_description"))
+        description_label.setObjectName("muted")
+        description_label.setWordWrap(True)
+        heading.addWidget(name_label)
+        heading.addWidget(description_label)
+        heading.addStretch()
+        top.addLayout(heading, 1)
+        layout.addLayout(top)
+
+        details_html = (
+            f"{self._t('about_created_by')}<br>"
+            f"{self._t('about_project')}<br><br>"
+            f"{self._t('about_based_on')}<br>"
+            f"{self._t('about_license')}<br><br>"
+            "© 2026 zoott28354 and contributors"
+        )
+        details_html = details_html.replace('<a href=', f'<a style="color:{self.ACCENT};" href=')
+        details = QLabel(details_html)
+        details.setTextFormat(Qt.TextFormat.RichText)
+        details.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        details.setOpenExternalLinks(True)
+        details.setWordWrap(True)
+        layout.addWidget(details)
+
+        close_button = QPushButton(self._t("close"))
+        close_button.clicked.connect(dialog.accept)
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(close_button)
+        layout.addLayout(button_row)
+        dialog.exec()
+
     def _worker_active(self) -> bool:
         return bool(self.worker and self.worker.is_alive())
+
+    def _preflight_active(self) -> bool:
+        return bool(self.preflight_thread and self.preflight_thread.is_alive())
+
+    def _compatibility_text(self, result: CompatibilityResult | None) -> str:
+        if result is None:
+            return self._t("compatibility_checking")
+        return self._t(f"compatibility_{result.verdict}")
+
+    def _set_compatibility_cell(self, row: int, result: CompatibilityResult | None) -> None:
+        item = self.table.item(row, 3)
+        if item is None:
+            item = QTableWidgetItem()
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 3, item)
+        item.setText(self._compatibility_text(result))
+        colors = {
+            None: self.MUTED,
+            "ready": "#34d399",
+            "limited": "#fbbf24",
+            "unsafe": self.DANGER,
+            "failed": self.DANGER,
+        }
+        item.setForeground(QColor(colors[result.verdict if result else None]))
+
+    def _selected_path(self) -> Path | None:
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        if not rows:
+            return None
+        value = self.table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole)
+        return Path(value) if value else None
+
+    def _update_compatibility_panel(self) -> None:
+        path = self._selected_path()
+        if path is None:
+            self.compatibility_summary_label.setText(self._t("compatibility_select"))
+            self.compatibility_summary_label.setStyleSheet(f"color: {self.MUTED};")
+            self.compatibility_details_label.clear()
+            return
+        result = self.compatibility_results.get(path)
+        if result is None:
+            self.compatibility_summary_label.setText(self._t("compatibility_checking"))
+            self.compatibility_summary_label.setStyleSheet(f"color: {self.ACCENT};")
+            self.compatibility_details_label.setText(path.name)
+            return
+
+        colors = {"ready": "#34d399", "limited": "#fbbf24", "unsafe": self.DANGER, "failed": self.DANGER}
+        self.compatibility_summary_label.setText(f"{path.name} — {self._compatibility_text(result)}")
+        self.compatibility_summary_label.setStyleSheet(f"color: {colors[result.verdict]};")
+        if result.verdict in ("ready", "limited"):
+            details = self._t(
+                "compatibility_details", dtype=result.source_dtype, preset=result.preset,
+                layers=result.quantized_layers, params=result.quantized_params_b,
+                coverage=result.coverage,
+            )
+            note = self._t(f"compatibility_{result.verdict}_note")
+        elif result.verdict == "unsafe":
+            details = self._t(
+                "compatibility_details", dtype=result.source_dtype, preset=result.preset,
+                layers=result.quantized_layers, params=result.quantized_params_b,
+                coverage=result.coverage,
+            )
+            note = self._t("compatibility_unsafe_note")
+        else:
+            details = ""
+            note = self._t("compatibility_failed_note", error=result.error or "unknown error")
+        self.compatibility_details_label.setText(f"{details}\n{note}".strip())
 
     def _dry_run_changed(self, checked: bool) -> None:
         if checked:
             self.delete_original_check.setChecked(False)
         self.delete_original_check.setEnabled(not checked)
+
+    def _preflight_settings_changed(self, _value: int) -> None:
+        if not self.files or self._worker_active():
+            return
+        self._invalidate_preflight()
+        self.compatibility_results.clear()
+        for row in range(self.table.rowCount()):
+            self._set_compatibility_cell(row, None)
+        self._update_compatibility_panel()
+        self._start_preflight()
+
+    def _invalidate_preflight(self) -> None:
+        """Discard an obsolete check and stop its current subprocess."""
+        self.preflight_generation += 1
+        process = self.preflight_process
+        if process and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         if watched is self.drop_frame and event.type() == QEvent.Type.MouseButtonRelease:
@@ -580,6 +860,56 @@ class ConvRotApp(QMainWindow):
             size /= 1024
         return ""
 
+    def _start_preflight(self) -> None:
+        if self._worker_active() or self._preflight_active():
+            return
+        pending = [path for path in self.files if path not in self.compatibility_results]
+        if not pending:
+            self.start_button.setEnabled(True)
+            return
+        self.start_button.setEnabled(False)
+        self._set_status("status_preflight", count=len(pending))
+        min_gemm = self.min_gemm_spin.value()
+        generation = self.preflight_generation
+        self.preflight_thread = threading.Thread(
+            target=self._run_preflight, args=(pending, min_gemm, generation), daemon=True,
+        )
+        self.preflight_thread.start()
+
+    def _run_preflight(self, files: list[Path], min_gemm: int, generation: int) -> None:
+        for source in files:
+            if generation != self.preflight_generation:
+                break
+            if source not in self.files:
+                continue
+            command = build_command(
+                source, None, dry_run=True, min_gemm=min_gemm,
+                mseclip=False, downcast_fp32=False, report_path=None,
+            )
+            env = os.environ.copy()
+            env["PYTHONUTF8"] = "1"
+            try:
+                self.preflight_process = subprocess.Popen(
+                    command,
+                    cwd=APP_DIR,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+                output, _ = self.preflight_process.communicate()
+                return_code = self.preflight_process.returncode
+                result = parse_compatibility_output(output, return_code)
+            except Exception as exc:
+                result = CompatibilityResult("failed", error=str(exc))
+            finally:
+                self.preflight_process = None
+            self.events.put(("compatibility", (source, result, generation)))
+        self.events.put(("preflight_done", generation))
+
     def _browse_files(self) -> None:
         model_filter = f"{self._t('models_filter')} (*.safetensors *.pth *.pt *.ckpt *.bin)"
         all_filter = f"{self._t('all_files')} (*)"
@@ -588,6 +918,7 @@ class ConvRotApp(QMainWindow):
 
     def _add_files(self, paths: list[Path]) -> None:
         rejected = 0
+        added = 0
         for path in paths:
             path = path.resolve()
             if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -596,6 +927,7 @@ class ConvRotApp(QMainWindow):
             if path not in self.files:
                 self.files.append(path)
                 self.file_states[path] = "state_waiting"
+                added += 1
                 row = self.table.rowCount()
                 self.table.insertRow(row)
                 name_item = QTableWidgetItem(path.name)
@@ -608,10 +940,15 @@ class ConvRotApp(QMainWindow):
                 self.table.setItem(row, 0, name_item)
                 self.table.setItem(row, 1, size_item)
                 self.table.setItem(row, 2, state_item)
+                self._set_compatibility_cell(row, None)
+        if added and self.table.rowCount() == added:
+            self.table.selectRow(0)
         if rejected:
             self._set_status("status_queue_rejected", count=len(self.files), rejected=rejected)
         else:
             self._set_status("status_queue", count=len(self.files))
+        if added:
+            self._start_preflight()
 
     def _row_for_path(self, path: Path) -> int | None:
         for row in range(self.table.rowCount()):
@@ -628,15 +965,22 @@ class ConvRotApp(QMainWindow):
             if path in self.files:
                 self.files.remove(path)
             self.file_states.pop(path, None)
+            self.compatibility_results.pop(path, None)
             self.table.removeRow(row)
+        if not self.files:
+            self._invalidate_preflight()
+        self._update_compatibility_panel()
         self._set_status("status_queue", count=len(self.files)) if self.files else self._set_status("status_drop")
 
     def _clear_files(self) -> None:
         if self._worker_active():
             return
+        self._invalidate_preflight()
         self.files.clear()
         self.file_states.clear()
+        self.compatibility_results.clear()
         self.table.setRowCount(0)
+        self._update_compatibility_panel()
         self._set_status("status_drop")
 
     def _browse_output(self) -> None:
@@ -654,6 +998,12 @@ class ConvRotApp(QMainWindow):
     def _start(self) -> None:
         if not self.files:
             QMessageBox.information(self, self._t("no_model_title"), self._t("no_model_message"))
+            return
+        if self._preflight_active() or any(path not in self.compatibility_results for path in self.files):
+            self._start_preflight()
+            self._set_status("status_preflight", count=sum(
+                path not in self.compatibility_results for path in self.files
+            ))
             return
         min_gemm = self.min_gemm_spin.value()
         output_text = self.output_entry.text().strip()
@@ -766,6 +1116,30 @@ class ConvRotApp(QMainWindow):
                     row = self._row_for_path(source)
                     if row is not None:
                         self.table.item(row, 2).setText(self._t(state_key))
+                elif kind == "compatibility":
+                    source, result, generation = payload  # type: ignore[misc]
+                    if generation == self.preflight_generation and source in self.files:
+                        self.compatibility_results[source] = result
+                        row = self._row_for_path(source)
+                        if row is not None:
+                            self._set_compatibility_cell(row, result)
+                        if self._selected_path() == source:
+                            self._update_compatibility_panel()
+                elif kind == "preflight_done":
+                    generation = int(payload)
+                    self.preflight_thread = None
+                    if generation != self.preflight_generation:
+                        self._start_preflight()
+                        continue
+                    pending = [path for path in self.files if path not in self.compatibility_results]
+                    if pending:
+                        self._start_preflight()
+                    elif not self._worker_active():
+                        self.start_button.setEnabled(True)
+                        if self.files:
+                            self._set_status("status_queue", count=len(self.files))
+                        else:
+                            self._set_status("status_drop")
                 elif kind == "done":
                     successes, total, cancelled = payload  # type: ignore[misc]
                     self.start_button.setEnabled(True)
@@ -791,6 +1165,7 @@ class ConvRotApp(QMainWindow):
                 event.ignore()
                 return
             self._cancel()
+        self._invalidate_preflight()
         event.accept()
 
 
@@ -798,9 +1173,18 @@ def main() -> int:
     if QApplication is None:
         raise SystemExit("Missing dependency: PySide6. Run setup.bat first.")
     enable_high_dpi_awareness()
+    if os.name == "nt":
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "zoott28354.ComfyUIConvRotConverter"
+            )
+        except (AttributeError, OSError):
+            pass
     app = QApplication(sys.argv)
     app.setApplicationName("ComfyUI ConvRot Converter")
     app.setStyle("Fusion")
+    if APP_ICON.is_file():
+        app.setWindowIcon(QIcon(str(APP_ICON)))
     window = ConvRotApp()
     if not QUANTIZER.is_file():
         QMessageBox.critical(

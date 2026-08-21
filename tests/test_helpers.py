@@ -55,12 +55,14 @@ except ImportError:
     sys.modules["comfy_kitchen.tensor.int8"] = comfy_int8_stub
 
 from convrot_gui import (
+    APP_ICON,
     TRANSLATIONS,
     build_command,
     delete_original_after_conversion,
     numbered_output_path,
     output_name,
     output_path,
+    parse_compatibility_output,
     plan_output_paths,
 )
 from quant_int8_convrot import (
@@ -97,9 +99,57 @@ class HelperTests(unittest.TestCase):
         self.assertIn("PySide6_Essentials==6.11.2", lock)
         self.assertIn("shiboken6==6.11.2", lock)
 
+    def test_windows_icon_contains_multiple_resolutions(self):
+        header = APP_ICON.read_bytes()[:6]
+        self.assertEqual(header[:4], b"\x00\x00\x01\x00")
+        self.assertEqual(int.from_bytes(header[4:6], "little"), 7)
+
     def test_translations_have_identical_keys(self):
         self.assertEqual(set(TRANSLATIONS["it"]), set(TRANSLATIONS["en"]))
         self.assertEqual(TRANSLATIONS["en"]["start"], "Start conversion")
+
+    def test_compatibility_parser_marks_dense_bf16_model_ready(self):
+        output = """
+source storage dtypes (actual safetensors header):
+  BF16       32.223B elements  100.00%  (~64.45 GB)
+layer-selection preset: generic
+QUANTIZE 160 layers (int8+convrot, MSE-clip):
+  groupsizes: {256: 160}   quantized params: 31.41B  (~31.4 GB int8)
+"""
+        result = parse_compatibility_output(output, 0)
+        self.assertEqual(result.verdict, "ready")
+        self.assertEqual(result.source_dtype, "BF16")
+        self.assertEqual(result.preset, "generic")
+        self.assertEqual(result.quantized_layers, 160)
+        self.assertAlmostEqual(result.coverage, 97.48, places=2)
+
+    def test_compatibility_parser_marks_small_coverage_as_limited(self):
+        output = """
+  F16        10.000B elements  100.00%  (~20.00 GB)
+layer-selection preset: generic
+QUANTIZE 8 layers (int8+convrot, absmax):
+  groupsizes: {256: 8}   quantized params: 1.00B  (~1.0 GB int8)
+"""
+        result = parse_compatibility_output(output, 0)
+        self.assertEqual(result.verdict, "limited")
+        self.assertAlmostEqual(result.coverage, 10.0)
+
+    def test_compatibility_parser_rejects_already_quantized_source(self):
+        output = """
+  F8_E4M3    14.000B elements  100.00%  (~14.00 GB)
+  WARNING: source is already predominantly FP8; conversion adds a second quantization stage.
+layer-selection preset: generic
+QUANTIZE 400 layers (int8+convrot, absmax):
+  groupsizes: {256: 400}   quantized params: 13.50B  (~13.5 GB int8)
+"""
+        result = parse_compatibility_output(output, 0)
+        self.assertEqual(result.verdict, "unsafe")
+        self.assertEqual(result.source_dtype, "F8_E4M3")
+
+    def test_compatibility_parser_reports_converter_failure(self):
+        result = parse_compatibility_output("Traceback\nUnsupported checkpoint", 1)
+        self.assertEqual(result.verdict, "failed")
+        self.assertEqual(result.error, "Unsupported checkpoint")
 
     def test_output_name_replaces_precision(self):
         self.assertEqual(output_name(Path("wan_FP16_v2.safetensors")), "wan_int8_convrot_v2.safetensors")

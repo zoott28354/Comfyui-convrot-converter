@@ -8,6 +8,15 @@ This application was created for users who keep many models spread across numero
 
 ## Installation
 
+Clone the repository:
+
+```powershell
+git clone https://github.com/zoott28354/Comfyui-convrot-converter.git
+cd Comfyui-convrot-converter
+```
+
+Alternatively, download and extract the ZIP from the [latest release](https://github.com/zoott28354/Comfyui-convrot-converter/releases/latest).
+
 1. Install standard 64-bit [Python 3.12, 3.13, or 3.14](https://www.python.org/downloads/windows/). Python 3.12 is the minimum required version.
 2. Double-click `setup.bat`. It automatically detects a compatible system Python, creates a local `.venv`, and installs CUDA PyTorch, `comfy-kitchen`, `safetensors`, and the PySide6 interface. If Python is missing, the setup simply tells you where to install it.
 3. After a successful installation, the setup creates `start.bat`. Use that generated launcher for subsequent starts.
